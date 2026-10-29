@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"sidedeploy/internal/aicommits"
 	"sidedeploy/internal/gitrepo"
 )
 
@@ -77,8 +78,9 @@ func (a *app) commit() {
 				return
 			}
 			if err != nil {
-				a.errorText = err.Error()
-				a.errorOpen = true
+				a.showError("Git no completó la operación",
+					"Suele ser un hook del repo. El índice quedó como estaba.",
+					err.Error())
 			} else {
 				a.commitMsg = ""
 				a.flash = "Commit hecho"
@@ -93,6 +95,29 @@ func (a *app) commitBar(c *ui.Context) {
 	ui.Row(c).FillWidth().Height(1).Background(t.Border)
 	ui.Row(c).FillWidth().Padding(8, 12).Gap(8).AlignItems(ui.End).Children(func() {
 		ui.TextArea(c, &a.commitMsg).Placeholder("Mensaje del commit").Lines(1, 5).MinHeight(34).Grow(1)
+
+		tool := a.aiTool()
+		sel := ui.Select(c, &tool, aicommits.Tools).Width(104).
+			Tooltip("Herramienta que escribe el mensaje").Disabled(a.aiBusy)
+		if sel.Changed() {
+			a.store.AITool = tool
+			a.saveStore()
+		}
+		if a.aiBusy {
+			ui.Spinner(c)
+			if ui.Button(c, "Cancelar").Clicked() {
+				a.cancelAI()
+			}
+		} else {
+			gen := ui.Button(c, "Generar").Tooltip("Escribe el mensaje con la IA a partir del diff")
+			if a.stagedCount()+a.changedCount() == 0 {
+				gen = gen.Disabled(true).Tooltip("No hay cambios que describir")
+			}
+			if gen.Clicked() {
+				a.generateMessage()
+			}
+		}
+
 		if a.busy {
 			ui.Spinner(c)
 		}
@@ -130,10 +155,17 @@ func (a *app) changedCount() int {
 
 func (a *app) errorModal(c *ui.Context) {
 	ui.Modal(c, &a.errorOpen, func() {
-		ui.Text(c, "Git no completó la operación").FontSize(18).Bold()
-		ui.Text(c, "Suele ser un hook del repo. El índice quedó como estaba.").
-			FontSize(11).TextColor(c.Theme().TextMuted)
-		ui.Scroll(c).Height(220).FillWidth().Children(func() {
+		title := a.errorTitle
+		if title == "" {
+			title = "Git no completó la operación"
+		}
+		hint := a.errorHint
+		if hint == "" {
+			hint = "Suele ser un hook del repo. El índice quedó como estaba."
+		}
+		ui.Text(c, title).FontSize(18).Bold()
+		ui.Text(c, hint).FontSize(11).TextColor(c.Theme().TextMuted)
+		ui.Scroll(c).MaxHeight(220).FillWidth().Children(func() {
 			ui.Text(c, a.errorText).FontSize(12)
 		})
 		ui.Row(c).FillWidth().Justify(ui.End).Children(func() {

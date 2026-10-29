@@ -214,3 +214,51 @@ func TestOpenTargetsAdoptsConfig(t *testing.T) {
 		t.Fatalf("not stored: %+v", got)
 	}
 }
+
+func TestAIToolDefault(t *testing.T) {
+	a := testApp(t)
+	if got := a.aiTool(); got != "claude" {
+		t.Fatalf("default tool = %q", got)
+	}
+	a.store.AITool = "copilot"
+	if got := a.aiTool(); got != "copilot" {
+		t.Fatalf("chosen tool = %q", got)
+	}
+	a.store.AITool = "otra"
+	if got := a.aiTool(); got != "claude" {
+		t.Fatalf("unknown tool = %q, want the default", got)
+	}
+}
+
+func TestCommitBarAI(t *testing.T) {
+	a := testApp(t)
+	tt := ui.NewTester(a.commitBar, 900, 120)
+	for _, want := range []string{"claude", "Generar", "Commit"} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q in %q", want, tt.Texts())
+		}
+	}
+
+	a.aiBusy = true
+	tt = ui.NewTester(a.commitBar, 900, 120)
+	if !tt.HasText("Cancelar") {
+		t.Fatalf("busy bar lacks Cancelar: %q", tt.Texts())
+	}
+	if tt.HasText("Generar") {
+		t.Fatalf("busy bar still offers Generar: %q", tt.Texts())
+	}
+}
+
+func TestShowError(t *testing.T) {
+	a := testApp(t)
+	a.showError("La IA no generó el mensaje", "Revisa el login.", "no encuentro «claude»")
+	if !a.errorOpen || a.errorTitle == "" || a.errorHint == "" {
+		t.Fatalf("error = %+v", a)
+	}
+	tt := ui.NewTester(a.view, 1280, 820)
+	for _, want := range []string{"La IA no generó el mensaje", "Revisa el login.", "no encuentro «claude»"} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q in %q", want, tt.Texts())
+		}
+	}
+}

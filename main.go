@@ -29,11 +29,13 @@ type app struct {
 	projIdx  int
 	selPath  string
 
-	repo *gitrepo.Repo
-	cfg  *deploy.Config
+	repo    *gitrepo.Repo
+	cfg     *deploy.Config
+	cfgPath string
 
 	branch  string
 	summary string
+	status  gitrepo.Status
 
 	rows     []row
 	files    ui.ListState
@@ -57,12 +59,36 @@ type app struct {
 	draftKey      string
 	formErr       string
 
-	commitMsg string
-	busy      bool
-	gitMu     sync.Mutex
-	errorOpen bool
-	errorText string
-	flash     string
+	deployOpen       bool
+	deployTarget     string
+	deployAutoDelete bool
+	deployConfirm    bool
+	deployJobs       []deploy.Job
+	deployUploads    int
+	deployDeletes    int
+	deploySkipped    int
+	deployNotes      []string
+	deployBusy       bool
+	deployCancel     context.CancelFunc
+	deployCancelled  bool
+	deployDone       int
+	deployTotal      int
+	deployFailed     int
+	deployLog        []string
+	deployFinished   string
+	deployUnknown    *deploy.UnknownHostError
+	deployErr        string
+
+	commitMsg  string
+	busy       bool
+	gitMu      sync.Mutex
+	aiBusy     bool
+	aiCancel   context.CancelFunc
+	errorOpen  bool
+	errorText  string
+	errorTitle string
+	errorHint  string
+	flash      string
 
 	split         float32
 	loadingStatus bool
@@ -113,6 +139,7 @@ func (a *app) view(c *ui.Context) {
 		})
 	})
 	a.targetsModal(c)
+	a.deployModal(c)
 	a.errorModal(c)
 	a.flashToast(c)
 }
@@ -134,6 +161,13 @@ func (a *app) toolbar(c *ui.Context) {
 		if a.repo != nil {
 			if ui.Button(c, a.targetsLabel()).Clicked() {
 				a.openTargets()
+			}
+			subir := ui.Button(c, "Subir").Tooltip("Envía los cambios al destino por FTP/SFTP")
+			if len(a.targets()) == 0 || len(a.status.Files) == 0 || a.loadingStatus || a.deployBusy {
+				subir = subir.Disabled(true)
+			}
+			if subir.Clicked() {
+				a.openDeploy()
 			}
 			if a.loadingStatus {
 				ui.Spinner(c)
@@ -458,18 +492,21 @@ func (a *app) openRepo(path string) {
 		})
 		return
 	}
-	cfg, _, cfgErr := deploy.Load(repo.Root)
+	cfg, cfgPath, cfgErr := deploy.Load(repo.Root)
 
 	a.win.Update(func() {
+		a.closeDeploy()
 		a.opening = false
 		a.repo = repo
 		a.cfg = cfg
+		a.cfgPath = cfgPath
 		a.projIdx = a.store.Add(repo.Root)
 		a.store.Active = repo.Root
 		a.selPath = repo.Root
 		a.saveStore()
 		a.branch = ""
 		a.summary = ""
+		a.status = gitrepo.Status{}
 		a.rows = nil
 		a.selected = -1
 		a.selKey = ""
@@ -519,6 +556,7 @@ func (a *app) refresh() {
 }
 
 func (a *app) applyStatus(st gitrepo.Status) {
+	a.status = st
 	a.branch = st.Branch
 	if st.Detached {
 		a.branch = "HEAD separado"
@@ -543,6 +581,9 @@ func (a *app) applyStatus(st gitrepo.Status) {
 	}
 	if a.selected < 0 {
 		a.selected = firstFileIndex(a.rows)
+	}
+	if a.deployOpen && !a.deployBusy {
+		a.buildDeployJobs()
 	}
 	if a.selected >= 0 {
 		a.selKey = rowKey(a.rows[a.selected])

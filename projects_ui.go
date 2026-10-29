@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"sidedeploy/internal/deploy"
+	"sidedeploy/internal/gitrepo"
 	"sidedeploy/internal/projects"
 )
 
@@ -109,12 +110,16 @@ func (a *app) removeProject(path string) {
 }
 
 func (a *app) closeProject() {
+	a.cancelAI()
+	a.closeDeploy()
 	a.repo = nil
 	a.cfg = nil
+	a.cfgPath = ""
 	a.projIdx = -1
 	a.selPath = ""
 	a.branch = ""
 	a.summary = ""
+	a.status = gitrepo.Status{}
 	a.rows = nil
 	a.selected = -1
 	a.selKey = ""

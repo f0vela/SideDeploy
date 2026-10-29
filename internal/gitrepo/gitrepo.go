@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Repo is a Git work tree.
@@ -162,6 +163,111 @@ func isBinary(s string) bool {
 		s = s[:n]
 	}
 	return strings.IndexByte(s, 0) >= 0
+}
+
+// maxChangeText caps what ChangeText returns, in bytes.
+const maxChangeText = 30 << 10
+
+// ChangeText returns what a commit message should describe: the staged diff
+// when there is one, else every change plus the untracked files, capped.
+func (r *Repo) ChangeText(ctx context.Context) (string, error) {
+	staged, err := r.run(ctx, "diff", "--cached", "--no-color", "--no-ext-diff")
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(string(staged)) != "" {
+		return clampText(string(staged)), nil
+	}
+
+	out, err := r.run(ctx, "diff", "--no-color", "--no-ext-diff")
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.Write(out)
+
+	st, err := r.Status(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, f := range st.Files {
+		if !f.Untracked() {
+			continue
+		}
+		text, found, tooLarge, err := workingFile(r.Root, f.Path)
+		if err != nil || !found || tooLarge || isBinary(text) {
+			continue
+		}
+		b.WriteString(untrackedDiff(f.Path, text))
+	}
+	return clampText(b.String()), nil
+}
+
+// RecentMessages returns the subjects of the last n commits, newest first, so
+// the AI keeps their language and style.
+func (r *Repo) RecentMessages(ctx context.Context, n int) []string {
+	out, err := r.run(ctx, "log", "--no-merges", "-n", strconv.Itoa(n), "--pretty=format:%s")
+	if err != nil {
+		return nil
+	}
+	var list []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			list = append(list, line)
+		}
+	}
+	return list
+}
+
+func untrackedDiff(path, text string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n--- /dev/null\n+++ b/%s\n", path)
+	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+		b.WriteString("+" + line + "\n")
+	}
+	return b.String()
+}
+
+func clampText(s string) string {
+	if len(s) <= maxChangeText {
+		return s
+	}
+	cut := s[:maxChangeText]
+	if i := strings.LastIndexByte(cut, '\n'); i > 0 {
+		cut = cut[:i]
+	}
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "\n… (diff truncado)\n"
+}
+
+// Ignored reports which of the paths Git ignores, for checkGitignore.
+func (r *Repo) Ignored(ctx context.Context, paths []string) (map[string]bool, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Root, "check-ignore", "--stdin", "-z")
+	cmd.Env = append(os.Environ(), "GIT_PAGER=cat", "GIT_TERMINAL_PROMPT=0")
+	cmd.Stdin = strings.NewReader(strings.Join(paths, "\x00") + "\x00")
+	out, err := cmd.Output()
+	if err != nil {
+		// Exit 1 means none of them is ignored.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ignored := make(map[string]bool)
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p != "" {
+			ignored[p] = true
+		}
+	}
+	return ignored, nil
 }
 
 // Stage adds the paths to the index, deletions included.

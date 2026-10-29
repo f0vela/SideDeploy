@@ -4,14 +4,17 @@ App nativa de escritorio (macOS) en **Go + MyGo** para revisar cambios de Git,
 hacer commits (con mensaje asistido por IA desde el CLI) y subir los cambios
 por **FTP/SFTP** con la misma lógica de `heminei.pro-deployer`.
 
-Estado: **M0, M1, proyectos/destinos y M2 implementados**; M3–M5 pendientes.
+Estado: **M0, M1, proyectos/destinos, M2, M3 y M4 implementados**; M5 pendiente.
 
-## Implementado (M0 + M1 + proyectos/destinos + M2)
+## Implementado (M0 + M1 + proyectos/destinos + M2 + M3 + M4)
 
 - Scaffold nativo MyGo 0.7.3 (`mygo.json`, `resources/icon.png`, `go.mod`).
 - Stage por archivo con casilla en la tabla, y "Stage todo" / "Unstage todo".
 - Commit con mensaje multilínea; corre en segundo plano con spinner y respeta
   hooks y firma del repo. Si un hook falla, su salida se muestra en un diálogo.
+- Mensaje generado con Claude o Copilot desde el CLI, con el diff del stage (o
+  de todo el working tree si no hay nada staged). Se copia a la caja para
+  editarlo; nunca se commitea solo. Se puede cancelar mientras corre.
 - La selección sigue al archivo cuando cambia de sección al hacer stage.
 - Barra lateral de proyectos: cada carpeta abierta queda en la lista y se
   cambia con un clic; menú contextual para quitarla (no toca el disco).
@@ -28,8 +31,18 @@ Estado: **M0, M1, proyectos/destinos y M2 implementados**; M3–M5 pendientes.
 - Diff unificado por archivo con `editor.DiffView`, avisos para binarios y
   archivos de más de 2 MB.
 - Refrescar con el botón o `Cmd+R`; abrir repo con `Cmd+O`.
-- Tests: parser de porcelain v2, integración con Git real, config/variables y
-  vista headless.
+- Subida real por FTP/FTPS y SFTP desde un modal: selector de destino, lista
+  local → remota, progreso, log de errores y cancelación. Respeta `ignore`,
+  `include`, `checkGitignore`, `autoDelete` y `concurrency` de
+  `pro-deployer.json`; crea carpetas remotas y reintenta una vez cada archivo.
+  Con `autoDelete`, borrar más de un archivo remoto pide confirmación.
+- SFTP verifica la host key contra `~/.ssh/known_hosts` y el `known_hosts`
+  propio de la app; un host nuevo muestra su huella y solo sube si se confía
+  en ella. Nunca se usa `InsecureIgnoreHostKey`. Los destinos FTP abren una
+  conexión por worker; SFTP comparte una sola conexión SSH.
+- Tests: parser de porcelain v2, integración con Git real, config/variables,
+  rutas remotas, filtros, candidatos, cola (concurrencia, reintento, cancelar),
+  known_hosts y un servidor SSH+SFTP en proceso; vista headless.
 
 ---
 
@@ -146,20 +159,22 @@ de línea en nombres.
 
 ### 4.2 `internal/aicommits`
 
-- Detecta `claude` y `copilot` en `PATH`; el usuario elige en la UI.
-- Prompt: diff staged si existe; si no, diff del working tree. Se recorta a
-  ~30 KB y se indica si se truncó.
-- Instrucción: “Genera un mensaje de commit en inglés, Conventional Commits,
-  primera línea ≤ 72 caracteres, sin explicación, solo el mensaje.”
+- Detecta `claude` y `copilot` en `PATH`; el usuario elige en la UI y la
+  elección queda en `aiTool` de `projects.json` (Claude por defecto).
+- Prompt: diff staged si existe; si no, diff del working tree más el texto de
+  los archivos untracked. Se recorta a 30 KB y se marca “diff truncado”.
+- Instrucción: mismo idioma y estilo que los últimos 10 asuntos de commit (si
+  no hay, español), primera línea ≤ 72 caracteres en imperativo, cuerpo breve
+  opcional, sin explicación ni bloques de código.
 - Ejecución segura:
-  - Claude: `claude -p --tools "" --output-format text`, cwd = directorio
-    temporal vacío. Sin herramientas, sin acceso al repo.
-  - Copilot: `copilot -p --silent` con herramientas deshabilitadas; si el CLI
-    exige permisos en modo no interactivo, se ejecuta en un directorio temporal
-    vacío y sin rutas del repo. Se valida al implementar.
-- Timeout 60 s, cancelable, stderr visible en el log.
-- Limpieza: quitar fences ```, comillas, prefijos “Commit message:”, líneas
-  vacías; dejar solo la primera línea + cuerpo opcional.
+  - Claude: `claude -p`.
+  - Copilot: `copilot -p … -s`.
+  - Ambos con cwd = directorio temporal vacío, `NO_COLOR=1` y sin rutas del
+    repo, así no leen ni escriben archivos.
+- Timeout 2 min, cancelable desde la barra; el stderr del CLI se muestra en el
+  diálogo de error.
+- Limpieza: quitar fences ```, comillas y prefijos “Commit message:” /
+  “Mensaje:”, conservando el cuerpo opcional.
 - Si falla, se mantiene el mensaje escrito y se muestra el error; nunca se
   commitea automáticamente.
 
@@ -280,8 +295,9 @@ y diff. Los destinos del proyecto se editan en un `ui.Modal`.
 - **Panel inferior:** `ui.Segmented` Commit/Deploy.
   - Commit: `ui.TextInput` multilínea, selector Claude/Copilot, botón IA,
     botón Commit (deshabilitado si no hay staged o mensaje).
-  - Deploy: selector de target, tabla local → remoto, checkboxes, “Subir
-    seleccionados” / “Subir todo”, `ui.Progress`, log desplazable y “Cancelar”.
+  - Deploy (implementado como modal, como el editor de destinos): selector de
+    target, lista local → remota, checkboxes, “Subir N archivos”, `ui.Progress`,
+    log desplazable, “Cancelar” y confirmación de borrados.
 - **Estados:** vacío (“Abre una carpeta con un repo Git”), sin config
   (“No se encontró pro-deployer.json”), sin target activo, error de conexión.
 - **Atajos:** `Cmd+O` abrir repo, `Cmd+R` refrescar, `Cmd+Enter` commit,
@@ -344,8 +360,8 @@ IA y red corre en goroutines y actualiza con `win.Update(...)`.
 | M1 ✅ | Git lectura | Lista staged/unstaged/untracked/renombrados/borrados; branch; diff por archivo; refrescar | 1 d |
 | M1.5 ✅ | Proyectos y destinos | Lista de proyectos en barra lateral; alta/baja; editor de destinos FTP/SFTP por proyecto en la app y en `projects.json` | 1 d |
 | M2 ✅ | Git escritura | Stage/unstage por archivo y todo; commit con mensaje; errores de hooks visibles | 0.5 d |
-| M3 | IA | Claude y Copilot generan mensaje editable; timeout/cancelación; limpieza de salida | 0.5 d |
-| M4 | Deploy | FTP y SFTP reales; mapeo de rutas; ignore/include/gitignore; concurrencia; mkdir; autoDelete; progreso y cancelar | 2 d |
+| M3 ✅ | IA | Claude y Copilot generan mensaje editable; timeout/cancelación; limpieza de salida | 0.5 d |
+| M4 ✅ | Deploy | FTP y SFTP reales; mapeo de rutas; ignore/include/gitignore; concurrencia; mkdir; autoDelete; progreso y cancelar | 2 d |
 | M5 | Pulido | Atajos, toasts, estados vacíos/error, icono, `mygo build` (.app + .dmg), README | 1 d |
 
 Total aproximado: **5.5–6 días** de desarrollo.
@@ -360,7 +376,12 @@ Total aproximado: **5.5–6 días** de desarrollo.
 - `internal/aicommits/clean_test.go`: fences, comillas, truncado.
 - `internal/deploy/queue_test.go`: cliente falso; orden, concurrencia, errores,
   cancelación, mkdir cacheado.
-- Test de vista MyGo (sin ventana) para la tabla y el panel de commit.
+- `internal/deploy/sftp_test.go` + `sftp_server_test.go`: known_hosts/TOFU y un
+  servidor SSH+SFTP en proceso (subir, mkdir, borrar).
+- `internal/deploy/candidates_test.go`: dedupe, borrados, renombres, symlinks.
+- `deploy_ui_test.go`: candidatos → jobs, filtros y confirmación de borrados.
+- Test de vista MyGo (sin ventana) para la tabla, el panel de commit y el modal
+  de subida.
 - Manual: target “My FTP” local y el SFTP real de `pro-deployer.json`
   (archivo inocuo) al final.
 - `gofmt -w`, `go vet ./...`, `go test ./...`, `go tool mygo build`.

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseStatus(t *testing.T) {
@@ -285,4 +286,95 @@ func byPath(st Status, path string) File {
 		}
 	}
 	return File{}
+}
+
+func TestChangeText(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git no está instalado")
+	}
+	root := newRepo(t)
+	repo, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	write(t, root, "app.txt", "uno\n")
+	write(t, root, "suelto.txt", "x\n")
+
+	// With nothing staged, every change shows, untracked files included.
+	text, err := repo.ChangeText(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"+uno", "+x", "+++ b/suelto.txt"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("ChangeText lacks %q:\n%s", want, text)
+		}
+	}
+
+	// The staged side wins when there is one, so the message matches the
+	// commit even if the work tree kept moving.
+	if err := repo.StageAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Commit(ctx, "primer commit"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "app.txt", "dos\n")
+	if err := repo.Stage(ctx, "app.txt"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "app.txt", "tres\n")
+	write(t, root, "otro.txt", "y\n")
+	text, err = repo.ChangeText(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "-uno") || !strings.Contains(text, "+dos") {
+		t.Errorf("staged diff missing:\n%s", text)
+	}
+	if strings.Contains(text, "+tres") || strings.Contains(text, "+y") {
+		t.Errorf("ChangeText read past the index:\n%s", text)
+	}
+
+	// Without anything staged, the work tree and the untracked files show.
+	if err := repo.UnstageAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	text, err = repo.ChangeText(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"-uno", "+tres", "+y"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("ChangeText lacks %q:\n%s", want, text)
+		}
+	}
+
+	got := repo.RecentMessages(ctx, 5)
+	if len(got) != 1 || got[0] != "primer commit" {
+		t.Fatalf("recent messages = %q", got)
+	}
+}
+
+func TestChangeTextCaps(t *testing.T) {
+	root := newRepo(t)
+	repo, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "grande.txt", strings.Repeat("línea de relleno\n", 5000))
+	text, err := repo.ChangeText(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(text, "… (diff truncado)\n") {
+		t.Fatalf("a big change was not capped, ends with %q", text[max(0, len(text)-60):])
+	}
+	if len(text) > maxChangeText+40 {
+		t.Fatalf("capped text = %d bytes", len(text))
+	}
+	if !utf8.ValidString(text) {
+		t.Fatal("the cap broke a UTF-8 rune")
+	}
 }

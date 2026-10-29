@@ -21,6 +21,7 @@ type Project struct {
 // Store is the content of projects.json, which the user may edit by hand.
 type Store struct {
 	Active   string    `json:"active,omitempty"`
+	AITool   string    `json:"aiTool,omitempty"`
 	Projects []Project `json:"projects"`
 }
 
