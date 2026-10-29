@@ -1,0 +1,6 @@
+{
+  "name": "SideDeploy",
+  "identifier": "dev.fvelasquez.sidedeploy",
+  "version": "0.2.1",
+  "out": "build"
+}
