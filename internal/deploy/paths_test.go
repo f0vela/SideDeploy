@@ -11,6 +11,7 @@ func TestRemotePath(t *testing.T) {
 		bad  bool
 	}{
 		{"root dir", Target{Dir: "/var/www", BaseDir: "/"}, "app/x.php", "/var/www/app/x.php", false},
+		{"server root", Target{Dir: "/", BaseDir: "/"}, "app/x.php", "/app/x.php", false},
 		{"dir without slash", Target{Dir: "var/www/", BaseDir: "/"}, "x.php", "/var/www/x.php", false},
 		{"base dir strips", Target{Dir: "/srv", BaseDir: "/src"}, "src/app/x.php", "/srv/app/x.php", false},
 		{"base dir relative", Target{Dir: "/srv", BaseDir: "src/"}, "src/app/x.php", "/srv/app/x.php", false},

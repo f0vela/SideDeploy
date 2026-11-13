@@ -3,70 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 
 	"sidedeploy/internal/deploy"
-	"sidedeploy/internal/gitrepo"
+	"sidedeploy/internal/plan"
 )
-
-// statusChanges turns the work tree status into the paths a deploy looks at,
-// without repeating a file Git lists twice.
-func statusChanges(st gitrepo.Status) []deploy.Change {
-	var out []deploy.Change
-	for _, f := range st.Files {
-		if !f.Staged() && !f.Unstaged() {
-			continue
-		}
-		out = append(out, deploy.Change{Path: f.Path, OrigPath: f.OrigPath})
-	}
-	return out
-}
-
-// deployJobsFor maps candidates to jobs, leaving out what the filter hides.
-// It returns the paths it could not map, to show instead of failing the run.
-func deployJobsFor(t deploy.Target, cands []deploy.Candidate, f deploy.Filter) (jobs []deploy.Job, skipped int, notes []string) {
-	for _, cand := range cands {
-		if f.Skip(cand.Rel) {
-			skipped++
-			continue
-		}
-		remote, err := deploy.RemotePath(t, cand.Rel)
-		if err != nil {
-			notes = append(notes, err.Error())
-			continue
-		}
-		jobs = append(jobs, deploy.Job{Rel: cand.Rel, Local: cand.Local, Remote: remote, Delete: cand.Delete})
-	}
-	return jobs, skipped, notes
-}
-
-// deployFilter follows pro-deployer's options: the app's own config never
-// goes up, then ignore, include and, optionally, what Git ignores.
-func (a *app) deployFilter(rels []string) (deploy.Filter, error) {
-	f := deploy.Filter{Config: []string{"pro-deployer.json", ".vscode/pro-deployer.json"}}
-	if a.repo != nil && a.cfgPath != "" {
-		if rel, err := filepath.Rel(a.repo.Root, a.cfgPath); err == nil {
-			f.Config = append(f.Config, filepath.ToSlash(rel))
-		}
-	}
-	if a.cfg == nil {
-		return f, nil
-	}
-	f.Ignore = a.cfg.Ignore
-	f.Include = a.cfg.Include
-	if !a.cfg.CheckGitignore {
-		return f, nil
-	}
-	ignored, err := a.repo.Ignored(context.Background(), rels)
-	if err != nil {
-		return f, fmt.Errorf("git check-ignore: %w", err)
-	}
-	f.Ignored = ignored
-	return f, nil
-}
 
 // deployTargetObj returns the target chosen in the deploy dialog.
 func (a *app) deployTargetObj() *deploy.Target {
@@ -82,46 +25,16 @@ func (a *app) deployTargetObj() *deploy.Target {
 	return nil
 }
 
-func (a *app) deployWorkers() int {
-	if a.cfg != nil && a.cfg.Concurrency > 0 {
-		return a.cfg.Concurrency
-	}
-	return 5
-}
+func (a *app) deployWorkers() int { return plan.Workers(a.cfg) }
 
 // buildDeployJobs recomputes what the dialog lists and sends. It is cheap
 // enough for the main thread; only git check-ignore runs a command.
 func (a *app) buildDeployJobs() {
-	a.deployJobs = nil
-	a.deployUploads, a.deployDeletes = 0, 0
-	a.deploySkipped = 0
-	a.deployNotes = nil
+	p := plan.Build(a.repo, a.cfg, a.cfgPath, a.status, a.deployTargetObj(), a.deployAutoDelete)
+	a.deployJobs = p.Jobs
+	a.deployUploads, a.deployDeletes, a.deploySkipped = p.Uploads, p.Deletes, p.Skipped
+	a.deployNotes = p.Notes
 	a.deployConfirm = false
-	repo := a.repo
-	tg := a.deployTargetObj()
-	if repo == nil || tg == nil {
-		return
-	}
-	cands := deploy.Candidates(repo.Root, statusChanges(a.status), a.deployAutoDelete)
-	rels := make([]string, len(cands))
-	for i, cand := range cands {
-		rels[i] = cand.Rel
-	}
-	filter, err := a.deployFilter(rels)
-	if err != nil {
-		a.deployNotes = append(a.deployNotes, err.Error())
-	}
-	jobs, skipped, notes := deployJobsFor(*tg, cands, filter)
-	a.deployJobs = jobs
-	a.deploySkipped = skipped
-	a.deployNotes = append(a.deployNotes, notes...)
-	for _, job := range jobs {
-		if job.Delete {
-			a.deployDeletes++
-		} else {
-			a.deployUploads++
-		}
-	}
 }
 
 // openDeploy opens the upload dialog on the project's active target.
@@ -224,14 +137,7 @@ func (a *app) startDeploy() {
 				a.deployLog = nil
 				return
 			}
-			switch {
-			case a.deployCancelled:
-				a.deployFinished = fmt.Sprintf("Cancelado: %d de %d archivos.", a.deployDone, a.deployTotal)
-			case a.deployFailed > 0:
-				a.deployFinished = fmt.Sprintf("%d de %d archivos con error.", a.deployFailed, a.deployTotal)
-			default:
-				a.deployFinished = fmt.Sprintf("Listo: %d archivos en %s.", a.deployDone, target.Name)
-			}
+			a.deployFinished = plan.Outcome(target.Name, a.deployDone, a.deployTotal, a.deployFailed, a.deployCancelled)
 		})
 	}()
 }

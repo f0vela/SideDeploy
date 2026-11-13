@@ -106,13 +106,7 @@ type app struct {
 	err           string
 }
 
-// row is one line of the changes table: a section header or a file.
-type row struct {
-	Header bool
-	Title  string
-	File   gitrepo.File
-	Staged bool
-}
+type row = gitrepo.Row
 
 func newApp() *app {
 	return &app{projectsShown: true, split: 350, selected: -1, projIdx: -1, confirmDelete: -1}
@@ -392,19 +386,7 @@ func (a *app) targetsLabel() string {
 	return "Destinos"
 }
 
-func (a *app) rowCode(i int) byte {
-	r := a.rows[i]
-	if r.Staged {
-		return r.File.Index
-	}
-	if r.File.Unmerged {
-		return 'U'
-	}
-	if r.File.Untracked() {
-		return '?'
-	}
-	return r.File.Worktree
-}
+func (a *app) rowCode(i int) byte { return a.rows[i].Code() }
 
 func statusColor(code byte, t *ui.Theme) ui.Color {
 	switch code {
@@ -419,34 +401,9 @@ func statusColor(code byte, t *ui.Theme) ui.Color {
 	}
 }
 
-func buildRows(st gitrepo.Status) []row {
-	var staged, changed []row
-	for _, f := range st.Files {
-		if f.Staged() {
-			staged = append(staged, row{File: f, Staged: true})
-		}
-		if f.Unstaged() {
-			changed = append(changed, row{File: f})
-		}
-	}
-	rows := make([]row, 0, len(staged)+len(changed)+2)
-	if len(staged) > 0 {
-		rows = append(rows, row{Header: true, Title: fmt.Sprintf("STAGED · %d", len(staged))})
-		rows = append(rows, staged...)
-	}
-	if len(changed) > 0 {
-		rows = append(rows, row{Header: true, Title: fmt.Sprintf("CAMBIOS · %d", len(changed))})
-		rows = append(rows, changed...)
-	}
-	return rows
-}
+func buildRows(st gitrepo.Status) []row { return gitrepo.BuildRows(st) }
 
-func rowKey(r row) string {
-	if r.Header {
-		return ""
-	}
-	return fmt.Sprintf("%t:%s", r.Staged, r.File.Path)
-}
+func rowKey(r row) string { return r.Key() }
 
 func indexOfPath(rows []row, path string) int {
 	if path == "" {

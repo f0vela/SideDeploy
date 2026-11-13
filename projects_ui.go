@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
 
@@ -243,19 +242,12 @@ func (a *app) beginEdit(i int) {
 	}
 	a.targetIndex = i
 	a.targetNew = i < 0 || i >= len(p.Targets)
-	a.draftPort = ""
-	a.draftKey = ""
 	if a.targetNew {
-		a.draft = deploy.Target{Type: "sftp", Dir: "/", BaseDir: "/"}
+		a.draft = projects.NewTarget()
 	} else {
 		a.draft = p.Targets[i]
-		if a.draft.Port > 0 {
-			a.draftPort = strconv.Itoa(a.draft.Port)
-		}
-		if a.draft.PrivateKey != nil {
-			a.draftKey = *a.draft.PrivateKey
-		}
 	}
+	a.draftPort, a.draftKey = projects.DraftFields(a.draft)
 	a.formErr = ""
 	a.targetEdit = true
 }
@@ -309,54 +301,13 @@ func (a *app) saveTarget() {
 	if p == nil {
 		return
 	}
-	a.draft.Name = strings.TrimSpace(a.draft.Name)
-	a.draft.Host = strings.TrimSpace(a.draft.Host)
-	if a.draft.Name == "" {
-		a.formErr = "Ponle un nombre al destino."
-		return
-	}
-	if a.draft.Host == "" {
-		a.formErr = "Falta el host."
-		return
-	}
-	port := 0
-	if s := strings.TrimSpace(a.draftPort); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 || n > 65535 {
-			a.formErr = "El puerto va de 1 a 65535, o vacío para el de su tipo."
-			return
-		}
-		port = n
-	}
-	a.draft.Port = port
-	a.draftKey = strings.TrimSpace(a.draftKey)
-	a.draft.PrivateKey = nil
-	if a.draftKey != "" {
-		key := a.draftKey
-		a.draft.PrivateKey = &key
-	}
-
-	for i := range p.Targets {
-		if (a.targetNew || i != a.targetIndex) && p.Targets[i].Name == a.draft.Name {
-			a.formErr = "Ya hay un destino con ese nombre."
-			return
-		}
-	}
-
-	one := []deploy.Target{a.draft}
-	deploy.Normalize(one)
-	a.draft = one[0]
-
+	index := a.targetIndex
 	if a.targetNew {
-		p.Targets = append(p.Targets, a.draft)
-	} else if a.targetIndex >= 0 && a.targetIndex < len(p.Targets) {
-		if p.ActiveTarget == p.Targets[a.targetIndex].Name {
-			p.ActiveTarget = a.draft.Name
-		}
-		p.Targets[a.targetIndex] = a.draft
+		index = -1
 	}
-	if p.ActiveTarget == "" {
-		p.ActiveTarget = a.draft.Name
+	if err := p.SaveTarget(index, a.draft, a.draftPort, a.draftKey); err != nil {
+		a.formErr = err.Error()
+		return
 	}
 	a.saveStore()
 	a.targetEdit = false
@@ -365,17 +316,10 @@ func (a *app) saveTarget() {
 
 func (a *app) deleteTarget(i int) {
 	p := a.project()
-	if p == nil || i < 0 || i >= len(p.Targets) {
+	if p == nil {
 		return
 	}
-	name := p.Targets[i].Name
-	p.Targets = append(p.Targets[:i], p.Targets[i+1:]...)
-	if p.ActiveTarget == name {
-		p.ActiveTarget = ""
-		if len(p.Targets) > 0 {
-			p.ActiveTarget = p.Targets[0].Name
-		}
-	}
+	p.DeleteTarget(i)
 	a.saveStore()
 }
 
@@ -386,14 +330,7 @@ func (a *app) openTargets() {
 	if p == nil {
 		return
 	}
-	if len(p.Targets) == 0 && a.cfg != nil && len(a.cfg.Targets) > 0 {
-		p.Targets = append([]deploy.Target(nil), a.cfg.Targets...)
-		if len(a.cfg.ActiveTargets) > 0 {
-			p.ActiveTarget = a.cfg.ActiveTargets[0]
-		}
-		if p.ActiveTarget == "" {
-			p.ActiveTarget = p.Targets[0].Name
-		}
+	if p.Adopt(a.cfg) {
 		a.saveStore()
 	}
 	a.targetsOpen = true

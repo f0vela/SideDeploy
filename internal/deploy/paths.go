@@ -41,7 +41,8 @@ func RemotePath(t Target, rel string) (string, error) {
 
 	dir := path.Clean("/" + strings.Trim(filepath.ToSlash(t.Dir), "/"))
 	remote := path.Join(dir, rel)
-	if remote != dir && !strings.HasPrefix(remote, dir+"/") {
+	// The root folder is "/", whose prefix is "/" and not "//".
+	if remote != dir && !strings.HasPrefix(remote, strings.TrimSuffix(dir, "/")+"/") {
 		return "", fmt.Errorf("la ruta %q queda fuera de %s", rel, dir)
 	}
 	return remote, nil

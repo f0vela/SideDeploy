@@ -9,6 +9,7 @@ import (
 
 	"sidedeploy/internal/deploy"
 	"sidedeploy/internal/gitrepo"
+	"sidedeploy/internal/plan"
 	"sidedeploy/internal/projects"
 )
 
@@ -19,7 +20,7 @@ func TestStatusChangesSkipsCleanFiles(t *testing.T) {
 		{Path: "c.php", Index: '.', Worktree: '.'},
 		{Path: "d.php", Index: '?', Worktree: '?'},
 	}}
-	got := statusChanges(st)
+	got := plan.Changes(st)
 	if len(got) != 3 {
 		t.Fatalf("changes = %+v, want a, b and d", got)
 	}
@@ -51,8 +52,8 @@ func TestDeployJobs(t *testing.T) {
 		{Path: "link", Index: '?', Worktree: '?'},
 	}}
 	filter := deploy.Filter{Include: []string{"app/**"}}
-	cands := deploy.Candidates(root, statusChanges(st), true)
-	jobs, skipped, notes := deployJobsFor(deploy.Target{Dir: "/var/www", BaseDir: "/"}, cands, filter)
+	cands := deploy.Candidates(root, plan.Changes(st), true)
+	jobs, skipped, notes := plan.JobsFor(deploy.Target{Dir: "/var/www", BaseDir: "/"}, cands, filter)
 	if len(notes) != 0 {
 		t.Fatalf("notes = %v", notes)
 	}
@@ -85,14 +86,14 @@ func TestDeployJobs(t *testing.T) {
 	}
 
 	// Without autoDelete nothing is removed from the server.
-	if jobs, _, _ := deployJobsFor(deploy.Target{Dir: "/srv"}, deploy.Candidates(root, statusChanges(st), false), deploy.Filter{}); len(jobs) != 3 {
+	if jobs, _, _ := plan.JobsFor(deploy.Target{Dir: "/srv"}, deploy.Candidates(root, plan.Changes(st), false), deploy.Filter{}); len(jobs) != 3 {
 		t.Fatalf("jobs without autoDelete = %+v", jobs)
 	}
 }
 
 func TestDeployJobsRejectsEscapingPaths(t *testing.T) {
 	cands := []deploy.Candidate{{Rel: "../secret", Local: "/tmp/secret"}}
-	jobs, skipped, notes := deployJobsFor(deploy.Target{Dir: "/srv"}, cands, deploy.Filter{})
+	jobs, skipped, notes := plan.JobsFor(deploy.Target{Dir: "/srv"}, cands, deploy.Filter{})
 	if len(jobs) != 0 || skipped != 0 || len(notes) != 1 {
 		t.Fatalf("jobs = %+v skipped = %d notes = %v", jobs, skipped, notes)
 	}
