@@ -378,3 +378,49 @@ func TestChangeTextCaps(t *testing.T) {
 		t.Fatal("the cap broke a UTF-8 rune")
 	}
 }
+
+func TestPush(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git no está instalado")
+	}
+	root := newRepo(t)
+	repo, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	write(t, root, "a.txt", "a\n")
+	if err := repo.StageAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Commit(ctx, "uno"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Push(ctx, ""); err == nil {
+		t.Fatal("push sin remoto debería fallar")
+	}
+
+	remote := t.TempDir()
+	git(t, remote, "init", "-q", "--bare")
+	git(t, root, "remote", "add", "origin", remote)
+	if err := repo.Push(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	st := status(t, repo)
+	if st.Upstream == "" || st.Ahead != 0 {
+		t.Fatalf("upstream = %q ahead = %d", st.Upstream, st.Ahead)
+	}
+
+	write(t, root, "b.txt", "b\n")
+	repo.StageAll(ctx)
+	repo.Commit(ctx, "dos")
+	if st = status(t, repo); st.Ahead != 1 {
+		t.Fatalf("ahead = %d", st.Ahead)
+	}
+	if err := repo.Push(ctx, st.Upstream); err != nil {
+		t.Fatal(err)
+	}
+	if st = status(t, repo); st.Ahead != 0 {
+		t.Fatalf("ahead after push = %d", st.Ahead)
+	}
+}

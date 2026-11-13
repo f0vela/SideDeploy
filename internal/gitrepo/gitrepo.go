@@ -311,6 +311,38 @@ func (r *Repo) Commit(ctx context.Context, message string) error {
 	return err
 }
 
+// Remotes lists the names of the configured remotes.
+func (r *Repo) Remotes(ctx context.Context) []string {
+	out, err := r.run(ctx, "remote")
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}
+
+// Push sends the current branch to its upstream. A branch without one goes
+// to the first remote (origin when there is one) and starts tracking it.
+// Git never asks for a password here: it needs a credential helper or an
+// SSH agent, and says so when it lacks them.
+func (r *Repo) Push(ctx context.Context, upstream string) error {
+	args := []string{"push"}
+	if upstream == "" {
+		remotes := r.Remotes(ctx)
+		if len(remotes) == 0 {
+			return errors.New("el repo no tiene ningún remoto configurado")
+		}
+		remote := remotes[0]
+		for _, name := range remotes {
+			if name == "origin" {
+				remote = name
+			}
+		}
+		args = append(args, "-u", remote, "HEAD")
+	}
+	_, err := runGitTimeout(ctx, 2*time.Minute, r.Root, args...)
+	return err
+}
+
 func (r *Repo) hasCommits(ctx context.Context) bool {
 	_, err := r.run(ctx, "rev-parse", "--verify", "HEAD")
 	return err == nil
@@ -321,7 +353,11 @@ func (r *Repo) run(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func runGit(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	return runGitTimeout(ctx, 30*time.Second, dir, args...)
+}
+
+func runGitTimeout(ctx context.Context, d time.Duration, dir string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)

@@ -19,6 +19,14 @@ func (a *app) aiTool() string {
 	return aicommits.Claude
 }
 
+// aiPath is the executable configured in Ajustes for tool, empty for PATH.
+func (a *app) aiPath(tool string) string {
+	if tool == aicommits.Copilot {
+		return a.store.CopilotPath
+	}
+	return a.store.ClaudePath
+}
+
 // generateMessage asks the AI for a message describing the staged changes,
 // or every change when nothing is staged. It never commits on its own: the
 // message lands in the box for the user to edit.
@@ -28,6 +36,7 @@ func (a *app) generateMessage() {
 		return
 	}
 	tool := a.aiTool()
+	bin := a.aiPath(tool)
 	a.aiBusy = true
 	a.err = ""
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -41,7 +50,7 @@ func (a *app) generateMessage() {
 		}
 		var msg string
 		if err == nil {
-			msg, err = aicommits.Generate(ctx, tool, diff, history)
+			msg, err = aicommits.Generate(ctx, tool, bin, diff, history)
 		}
 		if err != nil && ctx.Err() != nil {
 			err = ctx.Err()
@@ -62,7 +71,7 @@ func (a *app) generateMessage() {
 					"El comando no terminó a tiempo.")
 			case err != nil:
 				a.showError("La IA no generó el mensaje",
-					"Revisa que la herramienta esté instalada y con la sesión iniciada.",
+					"Revisa la ruta en Ajustes (⌘,) y que la herramienta tenga la sesión iniciada.",
 					err.Error())
 			default:
 				a.commitMsg = msg

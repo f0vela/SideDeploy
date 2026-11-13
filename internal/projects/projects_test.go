@@ -38,7 +38,7 @@ func TestAddAndRemove(t *testing.T) {
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	s := Store{Active: "/srv/site", AITool: "copilot", Projects: []Project{{
+	s := Store{Active: "/srv/site", AITool: "copilot", ClaudePath: "/opt/bin/claude", CopilotPath: "~/bin/copilot", Projects: []Project{{
 		Name:         "site",
 		Path:         "/srv/site",
 		ActiveTarget: "CDD",
@@ -64,6 +64,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if got.AITool != "copilot" {
 		t.Fatalf("aiTool = %q", got.AITool)
+	}
+	if got.ClaudePath != "/opt/bin/claude" || got.CopilotPath != "~/bin/copilot" {
+		t.Fatalf("AI paths = %q, %q", got.ClaudePath, got.CopilotPath)
 	}
 	p := got.Projects[0]
 	if p.Name != "site" || p.ActiveTarget != "CDD" || len(p.Targets) != 2 {

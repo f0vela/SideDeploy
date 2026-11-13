@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -22,16 +23,51 @@ const (
 // Tools are the command lines the app can ask, Claude first.
 var Tools = []string{Claude, Copilot}
 
-// Generate asks tool for a commit message describing diff, in the style of
-// history, the recent commit subjects of the repo. It gives up after 2
-// minutes, or when ctx is canceled.
-func Generate(ctx context.Context, tool, diff, history string) (string, error) {
-	if strings.TrimSpace(diff) == "" {
-		return "", errors.New("no hay cambios que describir")
+// Resolve returns the executable to run for tool: the path configured in
+// Ajustes when there is one, or the one on PATH.
+func Resolve(tool, custom string) (string, error) {
+	custom = strings.TrimSpace(custom)
+	if custom != "" {
+		custom = expandHome(custom)
+		info, err := os.Stat(custom)
+		if err != nil {
+			return "", fmt.Errorf("no encuentro «%s»", custom)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("«%s» es una carpeta, no un ejecutable", custom)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			return "", fmt.Errorf("«%s» no tiene permiso de ejecución", custom)
+		}
+		return custom, nil
 	}
 	bin, err := exec.LookPath(tool)
 	if err != nil {
-		return "", fmt.Errorf("no encuentro «%s» en el PATH; instálalo o elige la otra herramienta", tool)
+		return "", fmt.Errorf("no encuentro «%s» en el PATH", tool)
+	}
+	return bin, nil
+}
+
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
+}
+
+// Generate asks tool for a commit message describing diff, in the style of
+// history, the recent commit subjects of the repo. bin is the executable
+// configured in Ajustes, empty for the one on PATH. It gives up after 2
+// minutes, or when ctx is canceled.
+func Generate(ctx context.Context, tool, bin, diff, history string) (string, error) {
+	if strings.TrimSpace(diff) == "" {
+		return "", errors.New("no hay cambios que describir")
+	}
+	bin, err := Resolve(tool, bin)
+	if err != nil {
+		return "", err
 	}
 	args := []string{"-p", prompt(diff, history)}
 	if tool == Copilot {

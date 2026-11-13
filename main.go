@@ -29,6 +29,13 @@ type app struct {
 	projIdx  int
 	selPath  string
 
+	settingsWin   *mygo.Window
+	projectsShown bool
+	draftClaude   string
+	draftCopilot  string
+	settingsMsg   string
+	settingsErr   bool
+
 	repo    *gitrepo.Repo
 	cfg     *deploy.Config
 	cfgPath string
@@ -81,6 +88,7 @@ type app struct {
 
 	commitMsg  string
 	busy       bool
+	pushBusy   bool
 	gitMu      sync.Mutex
 	aiBusy     bool
 	aiCancel   context.CancelFunc
@@ -107,7 +115,7 @@ type row struct {
 }
 
 func newApp() *app {
-	return &app{split: 350, selected: -1, projIdx: -1, confirmDelete: -1}
+	return &app{projectsShown: true, split: 350, selected: -1, projIdx: -1, confirmDelete: -1}
 }
 
 func (a *app) view(c *ui.Context) {
@@ -120,22 +128,20 @@ func (a *app) view(c *ui.Context) {
 		a.refresh()
 	}
 
-	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		a.toolbar(c)
-		if a.err != "" {
-			a.errorBanner(c)
-		}
-		ui.Row(c).Grow(1).FillWidth().AlignItems(ui.Stretch).Children(func() {
-			a.projectsPane(c)
-			ui.Column(c).Grow(1).FillHeight().Children(func() {
-				if a.repo == nil {
-					a.welcome(c)
-					return
-				}
-				ui.Split(c, &a.split, func() { a.filesPane(c) }, func() { a.diffPane(c) }).Grow(1).FillWidth()
-				a.commitBar(c)
-				a.statusBar(c)
-			})
+	ui.Row(c).Fill().Background(t.Background).AlignItems(ui.Stretch).Children(func() {
+		a.projectsPane(c)
+		ui.Column(c).Grow(1).FillHeight().Children(func() {
+			a.toolbar(c)
+			if a.err != "" {
+				a.errorBanner(c)
+			}
+			if a.repo == nil {
+				a.welcome(c)
+				return
+			}
+			ui.Split(c, &a.split, func() { a.filesPane(c) }, func() { a.diffPane(c) }).Grow(1).FillWidth()
+			a.commitBar(c)
+			a.statusBar(c)
 		})
 	})
 	a.targetsModal(c)
@@ -146,36 +152,43 @@ func (a *app) view(c *ui.Context) {
 
 func (a *app) toolbar(c *ui.Context) {
 	t := c.Theme()
-	ui.Row(c).FillWidth().Padding(10, 14).Gap(10).AlignItems(ui.Center).Children(func() {
-		if ui.Button(c, "Abrir repo").Clicked() {
-			go a.openRepoDialog()
+	bar := c.TitleBar()
+	ui.Row(c).FillWidth().Height(max(bar.Height, 52)).Padding(0, 12+bar.Right, 0, 14).Gap(8).
+		AlignItems(ui.Center).DragWindow().Children(func() {
+		if a.repo == nil {
+			ui.Text(c, "SideDeploy").Bold().SingleLine()
+			ui.Row(c).Grow(1)
+			return
 		}
-		if a.repo != nil {
+		ui.Column(c).Gap(0).Children(func() {
 			ui.Text(c, filepath.Base(a.repo.Root)).Bold().SingleLine()
-			ui.Text(c, a.repo.Root).FontSize(11).TextColor(t.TextMuted).SingleLine().MaxWidth(360)
-			if a.branch != "" {
-				ui.Badge(c, a.branch)
-			}
+			ui.Text(c, a.repo.Root).FontSize(10).TextColor(t.TextMuted).SingleLine().MaxWidth(360)
+		})
+		if a.branch != "" {
+			ui.Badge(c, a.branch)
 		}
 		ui.Row(c).Grow(1)
-		if a.repo != nil {
-			if ui.Button(c, a.targetsLabel()).Clicked() {
+		if a.loadingStatus {
+			ui.Spinner(c)
+		}
+		ui.Toolbar(c, func() {
+			if ui.Button(c, "").Label("Actualizar").Tooltip("Actualizar (⌘R)").
+				Children(iconLabel(c, iconRefresh, "")).Clicked() {
+				a.refresh()
+			}
+			if ui.Button(c, "").Label(a.targetsLabel()).Tooltip("Destinos de despliegue").
+				Children(iconLabel(c, iconServer, a.targetsLabel())).Clicked() {
 				a.openTargets()
 			}
-			subir := ui.Button(c, "Subir").Tooltip("Envía los cambios al destino por FTP/SFTP")
+			subir := ui.PrimaryButton(c, "").Label("Subir").Tooltip("Envía los cambios al destino por FTP/SFTP").
+				Children(iconLabel(c, iconUpload, "Subir"))
 			if len(a.targets()) == 0 || len(a.status.Files) == 0 || a.loadingStatus || a.deployBusy {
 				subir = subir.Disabled(true)
 			}
 			if subir.Clicked() {
 				a.openDeploy()
 			}
-			if a.loadingStatus {
-				ui.Spinner(c)
-			}
-			if ui.Button(c, "Actualizar").Clicked() {
-				a.refresh()
-			}
-		}
+		}).Label("Acciones")
 	})
 	ui.Row(c).FillWidth().Height(1).Background(t.Border)
 }
@@ -193,7 +206,8 @@ func (a *app) errorBanner(c *ui.Context) {
 func (a *app) welcome(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Grow(1).Center().Gap(12).Padding(24).Children(func() {
-		ui.Text(c, "SideDeploy").FontSize(30).Bold()
+		ui.Icon(c, iconUpload).FontSize(44).TextColor(t.TextMuted)
+		ui.Text(c, "SideDeploy").FontSize(26).Bold()
 		if a.opening {
 			ui.Spinner(c)
 			ui.Text(c, "Abriendo repositorio…").TextColor(t.TextMuted)
@@ -203,7 +217,7 @@ func (a *app) welcome(c *ui.Context) {
 		if len(a.store.Projects) > 0 {
 			ui.Text(c, "Elige un proyecto a la izquierda, o abre otra carpeta.").FontSize(12).TextColor(t.TextMuted)
 		}
-		if ui.PrimaryButton(c, "Abrir repositorio").Clicked() {
+		if ui.PrimaryButton(c, "").Label("Abrir repositorio").Children(iconLabel(c, iconFolderIn, "Abrir repositorio")).Clicked() {
 			go a.openRepoDialog()
 		}
 		ui.Text(c, "También con ⌘O").FontSize(11).TextColor(t.TextMuted)
@@ -214,6 +228,7 @@ func (a *app) filesPane(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Row(c).FillWidth().Padding(10, 12).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconDoc).FontSize(14).TextColor(t.TextMuted)
 			ui.Text(c, "Cambios").Bold()
 			ui.Row(c).Grow(1)
 			if a.changedCount() > 0 {
@@ -231,6 +246,7 @@ func (a *app) filesPane(c *ui.Context) {
 
 		if len(a.rows) == 0 {
 			ui.Column(c).Grow(1).Center().Gap(6).Padding(24).Children(func() {
+				ui.Icon(c, iconCheck).FontSize(32).TextColor(t.TextMuted)
 				ui.Text(c, "Sin cambios").TextColor(t.TextMuted)
 				ui.Text(c, "El working tree está limpio.").FontSize(11).TextColor(t.TextMuted)
 			})
@@ -255,7 +271,7 @@ func (a *app) filesPane(c *ui.Context) {
 			r := a.rows[i]
 			if r.Header {
 				if col == 0 {
-					ui.Text(c, r.Title).FontSize(11).Bold().TextColor(t.TextMuted).
+					ui.Text(c, strings.ToUpper(r.Title[:1])+strings.ToLower(r.Title[1:])).FontSize(11).Bold().TextColor(t.TextMuted).
 						Padding(6, 12).Background(t.Surface).FillWidth()
 				}
 				return
@@ -345,7 +361,10 @@ func (a *app) statusBar(c *ui.Context) {
 		if branch == "" {
 			branch = "sin rama"
 		}
-		ui.Text(c, "⎇ "+branch).FontSize(11).TextColor(t.TextMuted)
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconBranch).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, branch).FontSize(11).TextColor(t.TextMuted)
+		})
 		if a.summary != "" {
 			ui.Text(c, a.summary).FontSize(11).TextColor(t.TextMuted)
 		}
@@ -355,7 +374,10 @@ func (a *app) statusBar(c *ui.Context) {
 			if dir == "" {
 				dir = "/"
 			}
-			ui.Text(c, "→ "+tg.Name+"  "+dir).FontSize(11).TextColor(t.TextMuted).SingleLine().MaxWidth(420)
+			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, iconServer).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, tg.Name+"  "+dir).FontSize(11).TextColor(t.TextMuted).SingleLine().MaxWidth(420)
+			})
 		} else if a.repo != nil {
 			ui.Text(c, "Sin destino de despliegue").FontSize(11).TextColor(t.TextMuted)
 		}
@@ -686,8 +708,11 @@ func main() {
 			MinWidth:  900,
 			MinHeight: 560,
 			StateKey:  "main",
-			Content:   ui.View(a.view),
+			// The sidebar and the toolbar reach the top, under the traffic lights.
+			TitleBarStyle: mygo.TitleBarHiddenInset,
+			Content:       ui.View(a.view),
 		})
+		a.installMenu()
 		if a.store.Active != "" {
 			go a.openRepo(a.store.Active)
 		}

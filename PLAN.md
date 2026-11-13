@@ -15,6 +15,10 @@ Estado: **M0, M1, proyectos/destinos, M2, M3 y M4 implementados**; M5 pendiente.
 - Mensaje generado con Claude o Copilot desde el CLI, con el diff del stage (o
   de todo el working tree si no hay nada staged). Se copia a la caja para
   editarlo; nunca se commitea solo. Se puede cancelar mientras corre.
+- Ventana de **Ajustes** en el menú de la app (⌘,) para elegir el ejecutable
+  de Claude y de Copilot; vacío significa buscarlo en el `PATH`. Se guarda en
+  `projects.json` (`claudePath`, `copilotPath`) y también se puede editar a
+  mano.
 - La selección sigue al archivo cuando cambia de sección al hacer stage.
 - Barra lateral de proyectos: cada carpeta abierta queda en la lista y se
   cambia con un clic; menú contextual para quitarla (no toca el disco).
@@ -22,8 +26,8 @@ Estado: **M0, M1, proyectos/destinos, M2, M3 y M4 implementados**; M5 pendiente.
   activo y eliminar destinos FTP/SFTP, con contraseña oculta y clave privada.
   Los destinos de `pro-deployer.json` se adoptan la primera vez que se abren.
 - `projects.json` en `~/Library/Application Support/SideDeploy` (0600) guarda
-  proyectos y destinos, y se puede editar a mano con el mismo formato de
-  `pro-deployer.json`.
+  proyectos, destinos, herramienta de IA y rutas de Claude/Copilot, y se puede
+  editar a mano con el mismo formato de `pro-deployer.json`.
 - Leer `.vscode/pro-deployer.json` o `pro-deployer.json`, resolver variables y
   mostrar el target activo y su carpeta remota.
 - Listar cambios en dos secciones (Staged / Cambios) con modificados, nuevos,

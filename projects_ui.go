@@ -61,43 +61,53 @@ func (a *app) saveStore() {
 
 func (a *app) projectsPane(c *ui.Context) {
 	t := c.Theme()
+	bar := c.TitleBar()
 	ui.Column(c).Width(sidebarWidth).FillHeight().Background(t.Surface).Children(func() {
-		ui.Row(c).FillWidth().Padding(10, 10).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "PROYECTOS").FontSize(10).Bold().TextColor(t.TextMuted)
-			ui.Row(c).Grow(1)
-			if ui.Button(c, "+").Clicked() {
-				go a.openRepoDialog()
-			}
-		})
+		// Room for the traffic lights, which sit over the sidebar.
+		ui.Row(c).FillWidth().Height(max(bar.Height, 52)).DragWindow()
 		if len(a.store.Projects) == 0 {
 			ui.Text(c, "Abre una carpeta con repositorio Git y quedará en esta lista.").
-				FontSize(11).TextColor(t.TextMuted).Padding(4, 10)
-			return
-		}
-
-		remove := ""
-		sb := ui.Sidebar(c, &a.selPath, func() {
-			for i := range a.store.Projects {
-				p := &a.store.Projects[i]
-				item := ui.SidebarItem(c, p.Path, nil, p.Name)
-				if n := len(p.Targets); n > 0 {
-					item.Children(func() { ui.Badge(c, strconv.Itoa(n)) })
-				}
-				item.ContextMenu(func(m *ui.Menu) {
-					if m.Item("Quitar de la lista").Chosen() {
-						remove = p.Path
+				FontSize(11).TextColor(t.TextMuted).Padding(4, 14).Grow(1)
+		} else {
+			remove := ""
+			sb := ui.Sidebar(c, &a.selPath, func() {
+				ui.SidebarSection(c, "Proyectos", &a.projectsShown, func() {
+					for i := range a.store.Projects {
+						p := &a.store.Projects[i]
+						item := ui.SidebarItem(c, p.Path, iconFolder, p.Name)
+						if n := len(p.Targets); n > 0 {
+							item.Children(func() { ui.Badge(c, strconv.Itoa(n)) })
+						}
+						item.ContextMenu(func(m *ui.Menu) {
+							if m.Item("Quitar de la lista").Chosen() {
+								remove = p.Path
+							}
+						})
 					}
 				})
-			}
-		}).Width(sidebarWidth)
+			}).Width(sidebarWidth).Grow(1)
 
-		if sb.Changed() {
-			go a.openRepo(a.selPath)
+			if sb.Changed() {
+				go a.openRepo(a.selPath)
+			}
+			if remove != "" {
+				a.removeProject(remove)
+			}
 		}
-		if remove != "" {
-			a.removeProject(remove)
-		}
+		ui.Row(c).FillWidth().Height(1).Background(t.Border)
+		ui.Toolbar(c, func() {
+			if ui.Button(c, "").Label("Añadir proyecto").Tooltip("Añadir proyecto (⌘O)").
+				Children(iconLabel(c, iconPlus, "")).Clicked() {
+				go a.openRepoDialog()
+			}
+			ui.Spacer(c)
+			if ui.Button(c, "").Label("Ajustes").Tooltip("Ajustes (⌘,)").
+				Children(iconLabel(c, iconGear, "")).Clicked() {
+				a.openSettings()
+			}
+		}).Label("Proyectos").Padding(6, 8)
 	})
+	ui.Row(c).FillHeight().Width(1).Background(t.Border)
 }
 
 // removeProject takes a project out of the list, not off the disk.
@@ -144,48 +154,56 @@ func (a *app) targetsModal(c *ui.Context) {
 		}
 		a.targetList(c)
 	})
+	a.confirmDeleteAlert(c)
 }
 
 func (a *app) targetList(c *ui.Context) {
 	t := c.Theme()
 	p := a.project()
-	ui.Column(c).Width(560).Gap(10).Children(func() {
-		ui.Text(c, "Destinos de "+p.Name).FontSize(18).Bold()
-		ui.Text(c, "El marcado es al que se suben los cambios.").FontSize(11).TextColor(t.TextMuted)
-
-		if a.confirmDelete >= 0 {
-			a.confirmDeleteRow(c)
-			return
-		}
+	ui.Column(c).Width(560).Gap(12).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconServer).FontSize(26).TextColor(t.Accent)
+			ui.Column(c).Gap(1).Children(func() {
+				ui.Text(c, "Destinos de "+p.Name).FontSize(16).Bold()
+				ui.Text(c, "El marcado es al que se suben los cambios.").FontSize(11).TextColor(t.TextMuted)
+			})
+		})
 
 		if len(p.Targets) == 0 {
-			ui.Text(c, "Todavía no hay destinos.").TextColor(t.TextMuted)
+			ui.Text(c, "Todavía no hay destinos.").TextColor(t.TextMuted).Padding(8, 0)
 		}
 		edit, del := -1, -1
 		before := p.ActiveTarget
-		for i := range p.Targets {
-			tg := &p.Targets[i]
-			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Radio(c, &p.ActiveTarget, tg.Name, tg.Name).Grow(1)
-				ui.Text(c, remoteSummary(*tg)).FontSize(11).TextColor(t.TextMuted).SingleLine()
-				if ui.Button(c, "Editar").Clicked() {
-					edit = i
+		ui.Column(c).FillWidth().Background(t.Surface).Radius(8).Children(func() {
+			for i := range p.Targets {
+				tg := &p.Targets[i]
+				if i > 0 {
+					ui.Row(c).FillWidth().Height(1).Background(t.Border)
 				}
-				if ui.Button(c, "Eliminar").Clicked() {
-					del = i
-				}
-			})
-		}
+				ui.Row(c).FillWidth().Padding(8, 12).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Radio(c, &p.ActiveTarget, tg.Name, tg.Name).Grow(1)
+					ui.Text(c, remoteSummary(*tg)).FontSize(11).TextColor(t.TextMuted).SingleLine().MaxWidth(220)
+					ui.Toolbar(c, func() {
+						if ui.Button(c, "").Label("Editar").Tooltip("Editar").Children(iconLabel(c, iconPencil, "")).Clicked() {
+							edit = i
+						}
+						if ui.Button(c, "").Label("Eliminar").Tooltip("Eliminar").Children(iconLabel(c, iconTrash, "")).Clicked() {
+							del = i
+						}
+					}).Label("Destino " + tg.Name)
+				})
+			}
+		})
 		if p.ActiveTarget != before {
 			a.saveStore()
 		}
 
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			if ui.Button(c, "+ Añadir destino").Clicked() {
+			if ui.Button(c, "").Label("Añadir destino").Children(iconLabel(c, iconPlus, "Añadir destino")).Clicked() {
 				a.beginEdit(-1)
 			}
 			ui.Row(c).Grow(1)
-			if ui.Button(c, "Cerrar").Clicked() {
+			if ui.PrimaryButton(c, "Listo").Clicked() || c.Shortcut(0, ui.KeyEscape) {
 				a.targetsOpen = false
 			}
 		})
@@ -199,24 +217,23 @@ func (a *app) targetList(c *ui.Context) {
 	})
 }
 
-func (a *app) confirmDeleteRow(c *ui.Context) {
-	t := c.Theme()
+// confirmDeleteAlert asks, as an AppKit alert, before a target goes.
+func (a *app) confirmDeleteAlert(c *ui.Context) {
 	p := a.project()
-	name := ""
-	if a.confirmDelete < len(p.Targets) {
-		name = p.Targets[a.confirmDelete].Name
+	if a.confirmDelete < 0 || p == nil || a.confirmDelete >= len(p.Targets) {
+		a.confirmDelete = -1
+		return
 	}
-	ui.Text(c, "¿Eliminar el destino “"+name+"”?").Bold()
-	ui.Text(c, "Se borra de la lista de SideDeploy; el servidor no se toca.").FontSize(11).TextColor(t.TextMuted)
-	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-		if ui.Button(c, "Cancelar").Clicked() {
-			a.confirmDelete = -1
-		}
-		if ui.PrimaryButton(c, "Eliminar").Clicked() {
-			a.deleteTarget(a.confirmDelete)
-			a.confirmDelete = -1
-		}
-	})
+	open := true
+	name := p.Targets[a.confirmDelete].Name
+	switch ui.AlertDialog(c, &open, "¿Eliminar el destino “"+name+"”?",
+		"Se borra de la lista de SideDeploy; el servidor no se toca.", "Cancelar", "Eliminar") {
+	case 1:
+		a.deleteTarget(a.confirmDelete)
+		a.confirmDelete = -1
+	case 0, ui.AlertDismissed:
+		a.confirmDelete = -1
+	}
 }
 
 func (a *app) beginEdit(i int) {
@@ -249,31 +266,31 @@ func (a *app) targetForm(c *ui.Context) {
 	if !a.targetNew {
 		title = "Editar destino"
 	}
-	ui.Column(c).Width(560).Gap(12).Children(func() {
-		ui.Text(c, title).FontSize(18).Bold()
+	ui.Column(c).Width(520).Gap(14).Children(func() {
+		ui.Text(c, title).FontSize(16).Bold()
 
-		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.End).Children(func() {
-			field(c, "Nombre", func() { ui.TextInput(c, &a.draft.Name).Grow(1) })
-			field(c, "Tipo", func() { ui.Select(c, &a.draft.Type, []string{"sftp", "ftp"}).Width(110) })
-			field(c, "Puerto", func() { ui.TextInput(c, &a.draftPort).Placeholder("por defecto").Width(110) })
-		})
-		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.End).Children(func() {
-			field(c, "Host", func() { ui.TextInput(c, &a.draft.Host).Placeholder("ftp.ejemplo.com").Grow(1) })
-			field(c, "Usuario", func() { ui.TextInput(c, &a.draft.User).Width(180) })
-		})
-		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.End).Children(func() {
-			field(c, "Contraseña", func() { ui.TextInput(c, &a.draft.Password).Password().Grow(1) })
-			field(c, "Clave privada", func() {
-				ui.TextInput(c, &a.draftKey).Placeholder("~/.ssh/id_ed25519").Width(240)
+		ui.Form(c, func() {
+			ui.Field(c, "Nombre", func() { ui.TextInput(c, &a.draft.Name).FillWidth() })
+			ui.Field(c, "Tipo", func() { ui.Select(c, &a.draft.Type, []string{"sftp", "ftp"}).Width(110) })
+			ui.Field(c, "Host", func() { ui.TextInput(c, &a.draft.Host).Placeholder("ftp.ejemplo.com").FillWidth() })
+			ui.Field(c, "Puerto", func() { ui.TextInput(c, &a.draftPort).Placeholder("por defecto").Width(110) })
+			ui.Field(c, "Usuario", func() { ui.TextInput(c, &a.draft.User).FillWidth() })
+			ui.Field(c, "Contraseña", func() { ui.TextInput(c, &a.draft.Password).Password().FillWidth() })
+			ui.Field(c, "Clave privada", func() {
+				ui.TextInput(c, &a.draftKey).Placeholder("~/.ssh/id_ed25519").FillWidth()
+			}).Description("Opcional. Para SFTP con clave en lugar de contraseña.")
+			ui.Field(c, "Carpeta remota", func() {
+				ui.TextInput(c, &a.draft.Dir).Placeholder("/var/www/mi-sitio").FillWidth()
 			})
-		})
-		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.End).Children(func() {
-			field(c, "Carpeta remota", func() { ui.TextInput(c, &a.draft.Dir).Placeholder("/var/www/mi-sitio").Grow(1) })
-			field(c, "baseDir", func() { ui.TextInput(c, &a.draft.BaseDir).Placeholder("/").Width(120) })
+			ui.Field(c, "baseDir", func() { ui.TextInput(c, &a.draft.BaseDir).Placeholder("/").Width(140) }).
+				Description("Parte de la ruta del repo que no se sube.")
 		})
 
 		if a.formErr != "" {
-			ui.Text(c, a.formErr).FontSize(12).TextColor(t.Danger)
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, iconWarn).FontSize(13).TextColor(t.Danger)
+				ui.Text(c, a.formErr).FontSize(12).TextColor(t.Danger)
+			})
 		}
 		ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c, "Cancelar").Clicked() {
@@ -387,12 +404,4 @@ func (a *app) openTargets() {
 
 func remoteSummary(t deploy.Target) string {
 	return fmt.Sprintf("%s · %s:%d%s", t.Type, t.Host, t.Port, t.Dir)
-}
-
-// field stacks a label over an input.
-func field(c *ui.Context, label string, build func()) {
-	ui.Column(c).Gap(3).Children(func() {
-		ui.Text(c, label).FontSize(11).TextColor(c.Theme().TextMuted)
-		build()
-	})
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -92,43 +93,133 @@ func (a *app) commit() {
 
 func (a *app) commitBar(c *ui.Context) {
 	t := c.Theme()
+	canCommit := !a.busy && a.stagedCount() > 0 && strings.TrimSpace(a.commitMsg) != ""
+	if canCommit && c.Shortcut(ui.Cmd, ui.KeyEnter) {
+		a.commit()
+	}
+
 	ui.Row(c).FillWidth().Height(1).Background(t.Border)
-	ui.Row(c).FillWidth().Padding(8, 12).Gap(8).AlignItems(ui.End).Children(func() {
-		ui.TextArea(c, &a.commitMsg).Placeholder("Mensaje del commit").Lines(1, 5).MinHeight(34).Grow(1)
+	ui.Column(c).FillWidth().Padding(10, 14, 12, 14).Gap(8).Background(t.Surface).Children(func() {
+		ui.TextArea(c, &a.commitMsg).Placeholder("Mensaje del commit").Lines(2, 6).FillWidth().
+			Disabled(a.busy)
 
-		tool := a.aiTool()
-		sel := ui.Select(c, &tool, aicommits.Tools).Width(104).
-			Tooltip("Herramienta que escribe el mensaje").Disabled(a.aiBusy)
-		if sel.Changed() {
-			a.store.AITool = tool
-			a.saveStore()
-		}
-		if a.aiBusy {
-			ui.Spinner(c)
-			if ui.Button(c, "Cancelar").Clicked() {
-				a.cancelAI()
-			}
-		} else {
-			gen := ui.Button(c, "Generar").Tooltip("Escribe el mensaje con la IA a partir del diff")
-			if a.stagedCount()+a.changedCount() == 0 {
-				gen = gen.Disabled(true).Tooltip("No hay cambios que describir")
-			}
-			if gen.Clicked() {
-				a.generateMessage()
-			}
-		}
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			a.aiControls(c)
+			ui.Text(c, a.commitHint()).FontSize(11).TextColor(t.TextMuted).SingleLine()
+			ui.Row(c).Grow(1)
 
-		if a.busy {
-			ui.Spinner(c)
-		}
-		btn := ui.PrimaryButton(c, "Commit")
-		if a.busy || a.stagedCount() == 0 || strings.TrimSpace(a.commitMsg) == "" {
-			btn = btn.Disabled(true).Tooltip("Añade cambios al stage y escribe un mensaje")
-		}
-		if btn.Clicked() {
-			a.commit()
-		}
+			if a.busy || a.pushBusy {
+				ui.Spinner(c)
+			}
+			a.pushButton(c)
+
+			btn := ui.PrimaryButton(c, "").Label("Commit").Children(iconLabel(c, iconCheck, "Commit")).
+				Tooltip("Hace commit de lo que hay en el stage (⌘↵)")
+			if !canCommit {
+				btn = btn.Disabled(true).Tooltip("Añade cambios al stage y escribe un mensaje")
+			}
+			if btn.Clicked() {
+				a.commit()
+			}
+		})
 	})
+}
+
+// aiControls picks the tool that writes the message and runs it.
+func (a *app) aiControls(c *ui.Context) {
+	tool := a.aiTool()
+	sel := ui.Select(c, &tool, aicommits.Tools).Width(100).
+		Tooltip("Herramienta que escribe el mensaje").Disabled(a.aiBusy)
+	if sel.Changed() {
+		a.store.AITool = tool
+		a.saveStore()
+	}
+	if a.aiBusy {
+		ui.Spinner(c)
+		if ui.Button(c, "Cancelar").Clicked() {
+			a.cancelAI()
+		}
+		return
+	}
+	gen := ui.Button(c, "").Label("Generar").Children(iconLabel(c, iconSparkle, "Generar")).
+		Tooltip("Escribe el mensaje con la IA a partir del diff")
+	if a.stagedCount()+a.changedCount() == 0 {
+		gen = gen.Disabled(true).Tooltip("No hay cambios que describir")
+	}
+	if gen.Clicked() {
+		a.generateMessage()
+	}
+}
+
+// commitHint says what the next commit takes.
+func (a *app) commitHint() string {
+	switch n := a.stagedCount(); n {
+	case 0:
+		return "Nada en el stage"
+	case 1:
+		return "1 archivo en el stage"
+	default:
+		return fmt.Sprintf("%d archivos en el stage", n)
+	}
+}
+
+// pushable reports whether there is something for the remote to receive: new
+// commits, or a branch that has no upstream yet.
+func (a *app) pushable() bool {
+	if a.repo == nil || a.status.Detached || a.branch == "" {
+		return false
+	}
+	return a.status.Ahead > 0 || a.status.Upstream == ""
+}
+
+func (a *app) pushButton(c *ui.Context) {
+	label, tip := "Push", "Envía los commits al remoto"
+	switch {
+	case a.status.Upstream == "":
+		label, tip = "Publicar rama", "Sube la rama al remoto y la deja enlazada"
+	case a.status.Ahead > 0:
+		label = fmt.Sprintf("Push · %d", a.status.Ahead)
+	}
+	btn := ui.Button(c, "").Label(label).Children(iconLabel(c, iconPush, label)).Tooltip(tip)
+	if !a.pushable() || a.pushBusy || a.busy {
+		btn = btn.Disabled(true)
+		if a.status.Ahead == 0 && a.status.Upstream != "" {
+			btn = btn.Tooltip("No hay commits pendientes de enviar")
+		}
+	}
+	if btn.Clicked() {
+		a.push()
+	}
+}
+
+// push sends the branch to its remote off the main thread.
+func (a *app) push() {
+	repo := a.repo
+	if repo == nil || a.pushBusy || a.win == nil {
+		return
+	}
+	upstream := a.status.Upstream
+	a.pushBusy = true
+	a.err = ""
+	go func() {
+		a.gitMu.Lock()
+		err := repo.Push(context.Background(), upstream)
+		a.gitMu.Unlock()
+		a.win.Update(func() {
+			a.pushBusy = false
+			if repo != a.repo {
+				return
+			}
+			if err != nil {
+				a.showError("No se pudo hacer push",
+					"Git no pide contraseña aquí: hace falta un credential helper o un agente SSH, y que el remoto acepte la rama.",
+					err.Error())
+			} else {
+				a.flash = "Push hecho"
+			}
+			a.refresh()
+		})
+	}()
 }
 
 // stagedCount counts the files in the index, a staged and changed file once.
@@ -163,7 +254,10 @@ func (a *app) errorModal(c *ui.Context) {
 		if hint == "" {
 			hint = "Suele ser un hook del repo. El índice quedó como estaba."
 		}
-		ui.Text(c, title).FontSize(18).Bold()
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconWarn).FontSize(26).TextColor(c.Theme().Warning)
+			ui.Text(c, title).FontSize(16).Bold()
+		})
 		ui.Text(c, hint).FontSize(11).TextColor(c.Theme().TextMuted)
 		ui.Scroll(c).MaxHeight(220).FillWidth().Children(func() {
 			ui.Text(c, a.errorText).FontSize(12)

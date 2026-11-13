@@ -271,7 +271,8 @@ func (a *app) deployBody(c *ui.Context) {
 		}
 
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
-			ui.Text(c, "Subir cambios").FontSize(18).Bold().Grow(1)
+			ui.Icon(c, iconUpload).FontSize(24).TextColor(t.Accent)
+			ui.Text(c, "Subir cambios").FontSize(16).Bold().Grow(1)
 			list := a.targets()
 			before := a.deployTarget
 			if len(list) > 1 {
@@ -337,7 +338,7 @@ func (a *app) deployBody(c *ui.Context) {
 				if n := len(a.deployJobs); n > 0 {
 					label = fmt.Sprintf("Subir %d archivos", n)
 				}
-				subir := ui.PrimaryButton(c, label).Disabled(len(a.deployJobs) == 0 || a.loadingStatus)
+				subir := ui.PrimaryButton(c, "").Label(label).Children(iconLabel(c, iconUpload, label)).Disabled(len(a.deployJobs) == 0 || a.loadingStatus)
 				if subir.Clicked() {
 					if a.deployDeletes > 1 {
 						a.deployConfirm = true
@@ -355,6 +356,7 @@ func (a *app) deployConfirmRow(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).FillWidth().Padding(8, 10).Gap(8).AlignItems(ui.Center).
 		Background(t.Danger.Alpha(0.1)).Radius(6).Children(func() {
+		ui.Icon(c, iconTrash).FontSize(14).TextColor(t.Danger)
 		ui.Text(c, fmt.Sprintf("Se borrarán %d archivos en el servidor.", a.deployDeletes)).
 			FontSize(12).TextColor(t.Danger).Grow(1)
 		if ui.Button(c, "Cancelar").Clicked() {
@@ -401,7 +403,8 @@ func (a *app) deployList(c *ui.Context) {
 	if tg := a.deployTargetObj(); tg != nil {
 		dir = strings.TrimRight(tg.Dir, "/")
 	}
-	ui.Scroll(c).FillWidth().Height(deployListHeight(len(a.deployJobs))).Padding(4, 8).Gap(3).Children(func() {
+	ui.Scroll(c).FillWidth().Height(deployListHeight(len(a.deployJobs))).Padding(4, 8).Gap(3).
+		Background(t.Surface).Radius(8).Children(func() {
 		for _, job := range a.deployJobs {
 			job := job
 			remote := strings.TrimPrefix(job.Remote, dir+"/")
@@ -413,7 +416,7 @@ func (a *app) deployList(c *ui.Context) {
 					if job.Delete {
 						ui.Badge(c, "borrar")
 					} else {
-						ui.Text(c, "subir").FontSize(10).TextColor(t.TextMuted)
+						ui.Icon(c, iconUpload).FontSize(12).TextColor(t.Success)
 					}
 				})
 				ui.Text(c, job.Rel).FontSize(12).SingleLine().Grow(1)
@@ -463,7 +466,14 @@ func (a *app) deployProgress(c *ui.Context) {
 	if a.deployFailed > 0 || a.deployCancelled {
 		color = t.Warning
 	}
-	ui.Text(c, a.deployFinished).FontSize(12).TextColor(color)
+	ic := iconCheck
+	if color == t.Warning {
+		ic = iconWarn
+	}
+	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Icon(c, ic).FontSize(14).TextColor(color)
+		ui.Text(c, a.deployFinished).FontSize(12).TextColor(color)
+	})
 }
 
 func (a *app) deployErrors(c *ui.Context) {
@@ -474,7 +484,8 @@ func (a *app) deployErrors(c *ui.Context) {
 	if len(a.deployLog) == 0 {
 		return
 	}
-	ui.Scroll(c).FillWidth().Height(deployLogHeight(len(a.deployLog))).Padding(4, 8).Gap(2).Children(func() {
+	ui.Scroll(c).FillWidth().Height(deployLogHeight(len(a.deployLog))).Padding(4, 8).Gap(2).
+		Background(t.Danger.Alpha(0.08)).Radius(8).Children(func() {
 		for _, line := range a.deployLog {
 			ui.Text(c, line).FontSize(11).TextColor(t.Danger).SingleLine()
 		}
@@ -493,7 +504,10 @@ func deployLogHeight(n int) float32 {
 func (a *app) deployTrust(c *ui.Context) {
 	t := c.Theme()
 	u := a.deployUnknown
-	ui.Text(c, "Host SSH nuevo").FontSize(18).Bold()
+	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Icon(c, iconWarn).FontSize(26).TextColor(t.Warning)
+		ui.Text(c, "Host SSH nuevo").FontSize(16).Bold()
+	})
 	ui.Text(c, u.Host).FontSize(13)
 	ui.Text(c, "Huella "+u.Fingerprint).FontSize(12).TextColor(t.TextMuted)
 	ui.Text(c, "Este host no está en known_hosts. Compruébala con el servidor antes de confiar.").

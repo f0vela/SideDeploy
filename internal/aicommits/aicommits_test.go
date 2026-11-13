@@ -30,12 +30,32 @@ func TestClean(t *testing.T) {
 
 func TestGenerateGuards(t *testing.T) {
 	ctx := context.Background()
-	if _, err := Generate(ctx, "claude", "  \n", ""); err == nil {
+	if _, err := Generate(ctx, "claude", "", "  \n", ""); err == nil {
 		t.Fatal("an empty diff was accepted")
 	}
-	if _, err := Generate(ctx, "no-such-tool-sidedeploy", "diff", ""); err == nil ||
+	if _, err := Generate(ctx, "no-such-tool-sidedeploy", "", "diff", ""); err == nil ||
 		!strings.Contains(err.Error(), "PATH") {
 		t.Fatalf("missing command error = %v", err)
+	}
+}
+
+func TestResolve(t *testing.T) {
+	if bin, err := Resolve("sh", ""); err != nil || !strings.HasSuffix(bin, "/sh") {
+		t.Fatalf("Resolve(sh) = %q, %v", bin, err)
+	}
+	if _, err := Resolve("no-such-tool-sidedeploy", ""); err == nil ||
+		!strings.Contains(err.Error(), "PATH") {
+		t.Fatalf("missing tool error = %v", err)
+	}
+	if _, err := Resolve("claude", "/no/such/claude"); err == nil ||
+		!strings.Contains(err.Error(), "/no/such/claude") {
+		t.Fatalf("missing configured path error = %v", err)
+	}
+	if _, err := Resolve("claude", t.TempDir()); err == nil {
+		t.Fatal("a directory was accepted as an executable")
+	}
+	if bin, err := Resolve("claude", "/bin/sh"); err != nil || bin != "/bin/sh" {
+		t.Fatalf("configured path = %q, %v", bin, err)
 	}
 }
 

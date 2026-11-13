@@ -1,5 +1,5 @@
-// Package projects remembers the projects the app opened and the deploy
-// targets of each, in projects.json in the user data directory.
+// Package projects remembers the projects the app opened, the deploy targets
+// of each and the AI settings, in projects.json in the user data directory.
 package projects
 
 import (
@@ -20,9 +20,11 @@ type Project struct {
 
 // Store is the content of projects.json, which the user may edit by hand.
 type Store struct {
-	Active   string    `json:"active,omitempty"`
-	AITool   string    `json:"aiTool,omitempty"`
-	Projects []Project `json:"projects"`
+	Active      string    `json:"active,omitempty"`
+	AITool      string    `json:"aiTool,omitempty"`
+	ClaudePath  string    `json:"claudePath,omitempty"`
+	CopilotPath string    `json:"copilotPath,omitempty"`
+	Projects    []Project `json:"projects"`
 }
 
 const fileName = "projects.json"

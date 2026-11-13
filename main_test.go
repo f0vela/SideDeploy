@@ -81,7 +81,7 @@ func TestProjectsPane(t *testing.T) {
 	a.selPath = "/tmp/a"
 
 	tt := ui.NewTester(a.view, 1280, 820)
-	for _, want := range []string{"PROYECTOS", "sitio-a", "sitio-b", "+"} {
+	for _, want := range []string{"Proyectos", "sitio-a", "sitio-b", "Añadir proyecto"} {
 		if !tt.HasText(want) {
 			t.Errorf("missing %q in %q", want, tt.Texts())
 		}
@@ -102,7 +102,7 @@ func TestTargetsModal(t *testing.T) {
 	a.targetsOpen = true
 
 	tt := ui.NewTester(a.view, 1280, 820)
-	for _, want := range []string{"Destinos de sitio", "CDD", "Editar", "Eliminar", "+ Añadir destino"} {
+	for _, want := range []string{"Destinos de sitio", "CDD", "Editar", "Eliminar", "Añadir destino"} {
 		if !tt.HasText(want) {
 			t.Errorf("missing %q in %q", want, tt.Texts())
 		}
