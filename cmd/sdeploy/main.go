@@ -99,7 +99,7 @@ func main() {
 		start = expandPath(rest[0])
 	}
 	m := newModel(dir, p, start)
-	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+	if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		fail(err.Error())
 	}
 }

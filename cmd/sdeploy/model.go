@@ -158,7 +158,7 @@ func newModel(dataDir string, p prefs, startPath string) *model {
 	m.applyTheme(p.Theme)
 
 	m.msg = textarea.New()
-	m.msg.Placeholder = "Mensaje del commit"
+	m.msg.Placeholder = "Pulsa c, o haz clic aquí, para escribir el mensaje del commit"
 	m.msg.ShowLineNumbers = false
 	m.msg.CharLimit = 0
 	m.msg.SetHeight(3)

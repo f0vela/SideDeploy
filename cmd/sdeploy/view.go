@@ -45,7 +45,7 @@ func (m *model) diffW() int { return max(10, m.w-m.sideW()-m.filesW()-1) }
 func (m *model) layout() {
 	m.diff.Width = m.diffW()
 	m.diff.Height = max(1, m.bodyH()-1)
-	m.msg.SetWidth(max(10, m.w-m.sideW()-2))
+	m.msg.SetWidth(max(10, m.w-m.sideW()-4))
 	m.msg.SetHeight(commitRows)
 	m.bar.Width = 40
 	m.renderDiff()
@@ -339,15 +339,28 @@ func diffLine(body, gutter lipgloss.Style, num, sign, text string, w, numW int) 
 
 func (m *model) commitView(w int) string {
 	s := m.st
+	focused := m.focus == paneCommit
 	title := s.header
-	if m.focus == paneCommit {
+	if focused {
 		title = s.accent
 	}
-	hint := m.commitHint()
-	head := title.Render(" Commit") + s.muted.Render("  "+hint)
-	tool := "IA: " + m.aiTool()
-	head = padBetween(s.app, head, s.muted.Render(tool+" "), w)
+	head := title.Render(" Commit") + s.muted.Render("  "+m.commitHint())
+	right := s.muted.Render("IA: " + m.aiTool() + " ")
+	if n := subjectLen(m.msg.Value()); n > 0 {
+		counter := fmt.Sprintf("%d/72  ", n)
+		if n > 72 {
+			right = s.warn.Render(counter) + right
+		} else {
+			right = s.muted.Render(counter) + right
+		}
+	}
+	head = padBetween(s.app, head, right, w)
 
+	// The bar on the left shows where typing goes.
+	bar := s.input.Render("  ")
+	if focused {
+		bar = s.input.Foreground(c(s.t.Accent)).Render("▎ ")
+	}
 	ta := strings.Split(m.msg.View(), "\n")
 	box := make([]string, 0, commitRows)
 	for i := 0; i < commitRows; i++ {
@@ -355,22 +368,29 @@ func (m *model) commitView(w int) string {
 		if i < len(ta) {
 			l = ta[i]
 		}
-		box = append(box, s.input.Render(" ")+l+s.input.Render(" "))
+		box = append(box, bar+l+s.input.Render(" "))
 	}
 
 	canCommit := !m.busy && m.stagedCount() > 0 && trim(m.msg.Value()) != ""
 	var acts []string
-	acts = append(acts, m.chip("ctrl+s", "Commit", canCommit, true))
-	if m.aiBusy {
-		acts = append(acts, m.spin.View()+s.muted.Render(" escribiendo… ")+s.key.Render("esc")+s.muted.Render(" cancelar"))
+	if focused {
+		acts = append(acts, m.chip("ctrl+s", "Commit", canCommit, true),
+			m.chip("ctrl+g", "Generar", m.stagedCount()+m.changedCount() > 0 && !m.aiBusy, false),
+			m.chip("ctrl+p", m.pushLabel(), m.pushable() && !m.pushBusy && !m.busy, false),
+			m.chip("esc", "salir", true, false))
 	} else {
-		acts = append(acts, m.chip("g", "Generar", m.stagedCount()+m.changedCount() > 0, false))
+		acts = append(acts, m.chip("c", "Escribir", true, false),
+			m.chip("g", "Generar", m.stagedCount()+m.changedCount() > 0 && !m.aiBusy, false),
+			m.chip("ctrl+s", "Commit", canCommit, true),
+			m.chip("p", m.pushLabel(), m.pushable() && !m.pushBusy && !m.busy, false))
 	}
-	acts = append(acts, m.chip("p", m.pushLabel(), m.pushable() && !m.pushBusy && !m.busy, false))
+	if m.aiBusy {
+		acts = append(acts, m.spin.View()+s.muted.Render(" escribiendo con la IA… ")+s.key.Render("esc")+s.muted.Render(" cancelar"))
+	}
 	if m.busy || m.pushBusy {
 		acts = append(acts, m.spin.View())
 	}
-	line := " " + strings.Join(acts, s.app.Render("  "))
+	line := " " + strings.Join(acts, s.app.Render(" "))
 	lines := []string{head}
 	lines = append(lines, box...)
 	lines = append(lines, line)
@@ -382,6 +402,11 @@ func (m *model) commitView(w int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// subjectLen is the length of the first line of the message.
+func subjectLen(msg string) int {
+	return ansi.StringWidth(strings.TrimSpace(firstLine(msg)))
 }
 
 func padBetween(st lipgloss.Style, left, right string, w int) string {

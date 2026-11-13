@@ -121,6 +121,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				"Revisa la ruta en Ajustes (,) y que la herramienta tenga la sesión iniciada.", msg.err.Error())
 		default:
 			m.msg.SetValue(msg.text)
+			// Land in the box, ready to edit what the AI wrote.
+			return m, m.setFocus(paneCommit)
 		}
 		return m, nil
 
@@ -132,6 +134,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m, m.onKey(msg)
+
+	case tea.MouseMsg:
+		return m, m.onMouse(msg)
 	}
 
 	// Anything else (cursor blinks, ...) goes to the widget that has focus.
@@ -188,10 +193,11 @@ func (m *model) onOpened(msg openedMsg) tea.Cmd {
 	if msg.cfgErr != nil {
 		m.err = "Config: " + msg.cfgErr.Error()
 	}
+	cmd := m.refresh()
 	if m.focus == paneSide {
-		m.focus = paneFiles
+		return tea.Batch(cmd, m.setFocus(paneFiles))
 	}
-	return m.refresh()
+	return cmd
 }
 
 // syncSide puts the sidebar cursor on the open project.

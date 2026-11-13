@@ -235,3 +235,53 @@ func TestLookupTheme(t *testing.T) {
 }
 
 var _ = deploy.Target{}
+
+func TestManualCommitMessage(t *testing.T) {
+	m, repo := newTestModel(t)
+	press(t, m, " ")
+
+	// A click on the box focuses it; letters that are shortcuts elsewhere
+	// are just text there.
+	_, cmd := m.Update(tea.MouseMsg{X: 60, Y: m.bodyH() + 4, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	run(t, m, cmd)
+	if m.focus != paneCommit {
+		t.Fatalf("click should focus the commit box, focus = %v", m.focus)
+	}
+	press(t, m, "q", "u", "i", "t", "a", "r")
+	if m.mode != mNone || m.msg.Value() != "quitar" {
+		t.Fatalf("typed %q, mode %v", m.msg.Value(), m.mode)
+	}
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	run(t, m, cmd)
+	press(t, m, "d", "e", "t", "a", "l", "l", "e")
+	if got := m.msg.Value(); got != "quitar\ndetalle" {
+		t.Fatalf("multiline message = %q", got)
+	}
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "6/72") {
+		t.Errorf("view should count the subject:\n%s", view)
+	}
+
+	// esc leaves the box without losing the text.
+	press(t, m, "esc")
+	if m.focus == paneCommit || m.msg.Value() == "" {
+		t.Fatalf("esc: focus=%v text=%q", m.focus, m.msg.Value())
+	}
+	press(t, m, "c", "ctrl+s")
+	out, _ := exec.Command("git", "-C", repo, "log", "--format=%B", "-1").Output()
+	if strings.TrimSpace(string(out)) != "quitar\n\ndetalle" && strings.TrimSpace(string(out)) != "quitar\ndetalle" {
+		t.Fatalf("commit message = %q", out)
+	}
+}
+
+func TestAIMessageIsEditable(t *testing.T) {
+	m, _ := newTestModel(t)
+	_, cmd := m.Update(aiDoneMsg{repo: m.repo, text: "feat: algo"})
+	run(t, m, cmd)
+	if m.focus != paneCommit || m.msg.Value() != "feat: algo" {
+		t.Fatalf("focus=%v text=%q", m.focus, m.msg.Value())
+	}
+	press(t, m, "!")
+	if m.msg.Value() != "feat: algo!" {
+		t.Fatalf("the AI text should be editable, got %q", m.msg.Value())
+	}
+}

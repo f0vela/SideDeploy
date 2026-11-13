@@ -24,11 +24,9 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		m.openThemes()
 		return nil
 	case "tab":
-		m.cycleFocus(1)
-		return nil
+		return m.cycleFocus(1)
 	case "shift+tab":
-		m.cycleFocus(-1)
-		return nil
+		return m.cycleFocus(-1)
 	case "esc":
 		if m.aiBusy && m.aiCancel != nil {
 			m.aiCancel()
@@ -39,8 +37,7 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		if m.focus == paneCommit {
-			m.setFocus(paneFiles)
-			return nil
+			return m.setFocus(paneFiles)
 		}
 	}
 
@@ -89,7 +86,7 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.refresh()
 	case "c":
 		if m.repo != nil {
-			m.setFocus(paneCommit)
+			return m.setFocus(paneCommit)
 		}
 		return nil
 	case "g":
@@ -116,8 +113,7 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	case "enter":
 		if m.focus == paneFiles && m.sel >= 0 {
-			m.setFocus(paneDiff)
-			return nil
+			return m.setFocus(paneDiff)
 		}
 	}
 
@@ -148,7 +144,7 @@ func (m *model) panes() []pane {
 	return ps
 }
 
-func (m *model) cycleFocus(delta int) {
+func (m *model) cycleFocus(delta int) tea.Cmd {
 	ps := m.panes()
 	cur := 0
 	for i, p := range ps {
@@ -156,16 +152,18 @@ func (m *model) cycleFocus(delta int) {
 			cur = i
 		}
 	}
-	m.setFocus(ps[(cur+delta+len(ps))%len(ps)])
+	return m.setFocus(ps[(cur+delta+len(ps))%len(ps)])
 }
 
-func (m *model) setFocus(p pane) {
+func (m *model) setFocus(p pane) tea.Cmd {
 	m.focus = p
 	if p == paneCommit {
-		m.msg.Focus()
-	} else {
-		m.msg.Blur()
+		m.msg.Placeholder = "Escribe el mensaje del commit…  (ctrl+s lo confirma, esc sale)"
+		return m.msg.Focus()
 	}
+	m.msg.Placeholder = "Pulsa c, o haz clic aquí, para escribir el mensaje del commit"
+	m.msg.Blur()
+	return nil
 }
 
 func (m *model) sideKey(key string) tea.Cmd {
@@ -243,8 +241,7 @@ func (m *model) toggleStage() tea.Cmd {
 func (m *model) diffKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "left", "h", "esc":
-		m.setFocus(paneFiles)
-		return nil
+		return m.setFocus(paneFiles)
 	case "j":
 		m.diff.ScrollDown(1)
 		return nil
