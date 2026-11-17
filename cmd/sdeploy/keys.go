@@ -70,6 +70,12 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 	case "T":
 		m.openThemes()
 		return nil
+	case "P":
+		m.openProjects()
+		return nil
+	case "v":
+		m.openDiffModal()
+		return nil
 	case "o":
 		m.mode = mAddProject
 		m.addInput.SetValue("")
@@ -113,6 +119,10 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	case "enter":
 		if m.focus == paneFiles && m.sel >= 0 {
+			if !m.diffVisible() {
+				m.openDiffModal()
+				return nil
+			}
 			return m.setFocus(paneDiff)
 		}
 	}
@@ -134,7 +144,10 @@ func (m *model) deployReady() bool {
 }
 
 func (m *model) panes() []pane {
-	ps := []pane{paneFiles, paneDiff, paneCommit}
+	ps := []pane{paneFiles, paneCommit}
+	if m.diffVisible() {
+		ps = []pane{paneFiles, paneDiff, paneCommit}
+	}
 	if m.sideVisible() {
 		ps = append([]pane{paneSide}, ps...)
 	}

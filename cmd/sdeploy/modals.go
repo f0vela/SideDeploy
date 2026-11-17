@@ -44,6 +44,89 @@ func (m *model) onModalKey(k tea.KeyMsg) tea.Cmd {
 		}
 	case mHelp:
 		m.mode = mNone
+	case mProjects:
+		return m.projectsKey(key)
+	case mDiff:
+		return m.diffModalKey(key)
+	}
+	return nil
+}
+
+// --- projects dialog, for windows too narrow for the sidebar ---
+
+func (m *model) openProjects() {
+	m.pCur = max(0, m.projIdx)
+	m.mode = mProjects
+}
+
+func (m *model) projectsKey(key string) tea.Cmd {
+	n := len(m.store.Projects)
+	switch key {
+	case "esc", "q", "P":
+		m.mode = mNone
+	case "up", "k":
+		m.pCur = max(0, m.pCur-1)
+	case "down", "j":
+		m.pCur = min(max(0, n-1), m.pCur+1)
+	case "home":
+		m.pCur = 0
+	case "end":
+		m.pCur = max(0, n-1)
+	case "enter", " ", "l", "right":
+		if m.pCur < n {
+			m.mode = mNone
+			m.sideCur = m.pCur
+			return m.openRepoPath(m.store.Projects[m.pCur].Path)
+		}
+	case "o", "a":
+		m.mode = mAddProject
+		m.addInput.SetValue("")
+		return m.addInput.Focus()
+	case "x", "delete", "backspace":
+		if m.pCur < n {
+			p := m.store.Projects[m.pCur]
+			m.confirm("¿Quitar “"+p.Name+"” de la lista?",
+				"Se quita de SideDeploy; la carpeta no se toca.", "Quitar",
+				func(m *model) tea.Cmd { m.removeProject(p.Path); return nil })
+		}
+	}
+	return nil
+}
+
+// --- diff dialog, for windows too narrow for the diff pane ---
+
+func (m *model) openDiffModal() {
+	if m.repo == nil || m.sel < 0 || m.sel >= len(m.rows) || m.rows[m.sel].Header {
+		return
+	}
+	m.diffModal.Width, m.diffModal.Height = m.diffModalSize()
+	m.renderDiff()
+	m.diffModal.GotoTop()
+	m.mode = mDiff
+}
+
+func (m *model) diffModalKey(key string) tea.Cmd {
+	switch key {
+	case "esc", "q", "v", "enter":
+		m.mode = mNone
+	case "left", "h", "[":
+		return m.moveSel(-1)
+	case "right", "l", "]":
+		return m.moveSel(1)
+	case "s":
+		return m.toggleStage()
+	case "up", "k":
+		m.diffModal.ScrollUp(1)
+	case "down", "j":
+		m.diffModal.ScrollDown(1)
+	case "pgup", "b":
+		m.diffModal.PageUp()
+	case "pgdown", " ", "f":
+		m.diffModal.PageDown()
+	case "home":
+		m.diffModal.GotoTop()
+	case "end", "G":
+		m.diffModal.GotoBottom()
 	}
 	return nil
 }

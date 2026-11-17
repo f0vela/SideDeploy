@@ -285,3 +285,90 @@ func TestAIMessageIsEditable(t *testing.T) {
 		t.Fatalf("the AI text should be editable, got %q", m.msg.Value())
 	}
 }
+
+func resize(m *model, w, h int) { m.Update(tea.WindowSizeMsg{Width: w, Height: h}) }
+
+func TestNarrowWindowHidesSidebarAndOpensProjectsDialog(t *testing.T) {
+	m, _ := newTestModel(t)
+	resize(m, 90, 30)
+	view := ansi.Strip(m.View())
+	if strings.Contains(view, "PROYECTOS") || !strings.Contains(view, "@@ -1,2 +1,3 @@") {
+		t.Fatalf("at 90 columns the sidebar hides and the diff stays:\n%s", view)
+	}
+	if !strings.Contains(view, "P Proyectos") {
+		t.Errorf("the header should offer P:\n%s", view)
+	}
+	for _, line := range strings.Split(m.View(), "\n") {
+		if w := ansi.StringWidth(line); w != 90 {
+			t.Fatalf("line width %d != 90: %q", w, ansi.Strip(line))
+		}
+	}
+	press(t, m, "P")
+	if m.mode != mProjects {
+		t.Fatalf("P should open the projects dialog, mode = %v", m.mode)
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Proyectos") || !strings.Contains(v, "enter abrir") {
+		t.Fatalf("projects dialog:\n%s", v)
+	}
+	press(t, m, "esc")
+	if m.mode != mNone {
+		t.Fatal("esc should close it")
+	}
+}
+
+func TestVeryNarrowWindowShowsOnlyFilesAndOpensDiffDialog(t *testing.T) {
+	m, _ := newTestModel(t)
+	resize(m, 60, 28)
+	view := ansi.Strip(m.View())
+	if strings.Contains(view, "@@") || !strings.Contains(view, "a.php") || !strings.Contains(view, "ver diff") {
+		t.Fatalf("at 60 columns only the file list shows:\n%s", view)
+	}
+	for _, line := range strings.Split(m.View(), "\n") {
+		if w := ansi.StringWidth(line); w != 60 {
+			t.Fatalf("line width %d != 60: %q", w, ansi.Strip(line))
+		}
+	}
+	// Tab never lands on the hidden diff pane.
+	press(t, m, "tab")
+	if m.focus == paneDiff {
+		t.Fatal("tab focused a hidden pane")
+	}
+	press(t, m, "esc")
+
+	press(t, m, "enter")
+	if m.mode != mDiff {
+		t.Fatalf("enter should open the diff dialog, mode = %v", m.mode)
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "@@ -1,2 +1,3 @@") || !strings.Contains(v, "1/2") {
+		t.Fatalf("diff dialog:\n%s", v)
+	}
+	// Right moves to the next file and loads its diff.
+	press(t, m, "right")
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "b.php") || !strings.Contains(v, "2/2") {
+		t.Fatalf("next file:\n%s", v)
+	}
+	press(t, m, "esc")
+	press(t, m, "v")
+	if m.mode != mDiff {
+		t.Fatal("v should open the dialog too")
+	}
+	press(t, m, "esc")
+
+	// Growing the window brings the diff back, and the focus stays valid.
+	resize(m, 120, 36)
+	if !strings.Contains(ansi.Strip(m.View()), "@@") {
+		t.Fatal("the diff pane should come back")
+	}
+}
+
+func TestResizeMovesFocusOffHiddenPane(t *testing.T) {
+	m, _ := newTestModel(t)
+	press(t, m, "tab") // files → diff
+	if m.focus != paneDiff {
+		t.Fatalf("focus = %v", m.focus)
+	}
+	resize(m, 60, 28)
+	if m.focus != paneFiles {
+		t.Fatalf("focus should fall back to the files, got %v", m.focus)
+	}
+}

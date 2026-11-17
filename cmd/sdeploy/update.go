@@ -61,6 +61,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.diffLines, m.diffNote = nil, msg.err.Error()
 		}
 		m.diff.GotoTop()
+		m.diffModal.GotoTop()
 		m.renderDiff()
 		return m, nil
 

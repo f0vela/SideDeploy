@@ -24,6 +24,31 @@ build/sdeploy ~/sitio    # abre una carpeta
 | Subir: destino, borrar remoto, progreso, errores, cancelar, confirmar >1 borrado, confiar en host SSH | `u` (y `sdeploy deploy` sin interfaz) |
 | Ajustes: rutas de Claude y Copilot | `,` |
 
+## Ratón
+
+Funciona en cualquier terminal con soporte de ratón (hace falta al menos 40 columnas, y no actúa con un diálogo abierto):
+
+- **Clic** en un panel le da el foco; en un proyecto lo abre; en un archivo lo selecciona y muestra su diff; en el cuadro de commit lo deja listo para escribir.
+- **Rueda** sobre la barra de proyectos mueve la selección, sobre el diff lo desplaza y sobre la lista de archivos cambia de archivo.
+
+## Cuadro de commit
+
+- Escribe el mensaje a mano (`c` o clic) o genéralo con `g`; después de generarlo el foco pasa al cuadro, así puedes editar el texto antes de confirmar.
+- Debajo se muestra el largo de la primera línea (`n/72`), que avisa al pasar de 72.
+- Las acciones disponibles aparecen como botones con su tecla (`ctrl+s` Commit, `ctrl+g` Generar, `ctrl+p` Push) y se atenúan cuando no se pueden usar.
+
+## Ventanas angostas
+
+La interfaz se adapta al ancho de la terminal:
+
+| Ancho | Qué se ve | Cómo llegar a lo que se esconde |
+| --- | --- | --- |
+| 100 columnas o más | proyectos, archivos y diff | `b` oculta la barra de proyectos |
+| menos de 100 | se esconde la barra de proyectos | `P` abre una lista de proyectos en un diálogo |
+| menos de 72 (sin contar la barra) | solo la lista de archivos | `enter` o `v` abren el diff en un diálogo; `←` `→` cambian de archivo, `s` hace stage |
+
+Al agrandar la ventana vuelven los paneles. `tab` nunca cae en un panel escondido.
+
 ## Temas
 
 Dracula, Tokyo Night (y Storm), Catppuccin (Mocha, Macchiato, Frappé, Latte), Nord, Gruvbox (oscuro y claro), Solarized (oscuro y claro), One Dark, Rosé Pine, Monokai, Kanagawa, Everforest y GitHub (oscuro y claro).

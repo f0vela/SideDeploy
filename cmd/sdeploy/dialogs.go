@@ -53,6 +53,17 @@ func wrap(st lipgloss.Style, text string, w int) []string {
 	return out
 }
 
+// footerFit is footer for a limited width: it drops the last pairs, which
+// are the least important, until the rest fits.
+func (m *model) footerFit(o ov, width int, pairs ...string) string {
+	for n := len(pairs); n >= 2; n -= 2 {
+		if f := m.footer(o, pairs[:n]...); ansi.StringWidth(f) <= width {
+			return f
+		}
+	}
+	return m.footer(o, pairs[:2]...)
+}
+
 func (m *model) footer(o ov, pairs ...string) string {
 	var b strings.Builder
 	for i := 0; i+1 < len(pairs); i += 2 {
@@ -85,8 +96,86 @@ func (m *model) dialog() string {
 		return m.errorDialog()
 	case mHelp:
 		return m.helpDialog()
+	case mProjects:
+		return m.projectsDialog()
+	case mDiff:
+		return m.diffDialog()
 	}
 	return ""
+}
+
+func (m *model) projectsDialog() string {
+	o := m.ovStyles()
+	w := m.dialogWidth(60)
+	inner := w - 4
+	lines := []string{o.title.Render("Proyectos"), ""}
+	if len(m.store.Projects) == 0 {
+		lines = append(lines, o.muted.Render("Todavía no hay proyectos. Pulsa o para añadir uno."))
+	}
+	visible := max(3, min(len(m.store.Projects), m.h-12))
+	off := max(0, min(m.pCur-visible/2, len(m.store.Projects)-visible))
+	for i := off; i < off+visible && i < len(m.store.Projects); i++ {
+		p := m.store.Projects[i]
+		mark := "  "
+		if i == m.projIdx {
+			mark = "● "
+		}
+		badge := ""
+		if n := len(p.Targets); n > 0 {
+			badge = fmt.Sprintf("  %d destino", n)
+			if n > 1 {
+				badge += "s"
+			}
+		}
+		name := ansi.Truncate(p.Name, max(8, inner/2-4), "…")
+		path := ansi.Truncate(shortPath(p.Path, inner), max(0, inner-ansi.StringWidth(name)-ansi.StringWidth(badge)-6), "…")
+		text := " " + mark + name + "  " + path + badge
+		if i == m.pCur {
+			lines = append(lines, m.st.sel.Render(fmt.Sprintf("%-*s", inner, ansi.Truncate(text, inner, "…"))))
+		} else {
+			lines = append(lines, o.text.Render(" "+mark+name)+o.muted.Render("  "+path+badge))
+		}
+	}
+	lines = append(lines, "", m.footerFit(o, inner, "enter", "abrir", "esc", "cerrar", "o", "añadir", "x", "quitar"))
+	return m.frame(w, lines)
+}
+
+func (m *model) diffDialog() string {
+	o := m.ovStyles()
+	w := m.w - 4
+	vw, vh := m.diffModalSize()
+	head := o.title.Render(" ")
+	if m.sel >= 0 && m.sel < len(m.rows) && !m.rows[m.sel].Header {
+		label := "Cambios"
+		if m.diffStaged {
+			label = "Staged"
+		}
+		idx, total := 0, 0
+		for i, r := range m.rows {
+			if !r.Header {
+				total++
+				if i == m.sel {
+					idx = total
+				}
+			}
+		}
+		head = o.title.Render(ansi.Truncate(m.diffTitle, max(10, vw-24), "…")) + o.muted.Render("  "+label+fmt.Sprintf("  %d/%d", idx, total))
+	}
+	lines := []string{head, ""}
+	switch {
+	case m.diffLoading:
+		lines = append(lines, o.muted.Render("Cargando diff…"))
+	case len(m.diffLines) == 0:
+		lines = append(lines, o.muted.Render(m.diffNote))
+	default:
+		lines = append(lines, strings.Split(m.diffModal.View(), "\n")...)
+	}
+	for len(lines) < vh+2 {
+		lines = append(lines, "")
+	}
+	pct := fmt.Sprintf("%3.0f%%", m.diffModal.ScrollPercent()*100)
+	lines = append(lines[:vh+2], "", m.footerFit(o, w-4-6, "esc", "cerrar", "↑↓", "desplazar", "←→", "archivo", "s", "stage")+o.muted.Render("  "+pct))
+	return m.frame(w, lines)
 }
 
 func (m *model) addDialog() string {
@@ -140,6 +229,8 @@ func (m *model) helpDialog() string {
 		row("↑ ↓  j k", "mover · en el diff, desplazar"),
 		row("enter", "de cambios al diff · abrir proyecto"),
 		row("b", "mostrar u ocultar la barra de proyectos"),
+		row("P", "lista de proyectos en un diálogo (ventana angosta)"),
+		row("v  enter", "ver el diff en un diálogo (←→ cambia de archivo)"),
 		"",
 		sec("Git"),
 		row("espacio", "añadir o sacar el archivo del stage"),

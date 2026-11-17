@@ -46,6 +46,8 @@ const (
 	mConfirm
 	mError
 	mHelp
+	mProjects
+	mDiff
 )
 
 type model struct {
@@ -79,6 +81,8 @@ type model struct {
 	pendingOpen   string
 
 	diff        viewport.Model
+	diffModal   viewport.Model
+	pCur        int
 	diffLines   []textdiff.Line
 	diffTitle   string
 	diffNote    string
@@ -167,6 +171,7 @@ func newModel(dataDir string, p prefs, startPath string) *model {
 	m.addInput = textinput.New()
 	m.addInput.Placeholder = "/ruta/al/repositorio"
 	m.diff = viewport.New(10, 10)
+	m.diffModal = viewport.New(10, 10)
 	m.bar = progress.New(progress.WithoutPercentage(), progress.WithSolidFill("#7aa2f7"))
 	for i := range m.sInputs {
 		m.sInputs[i] = textinput.New()

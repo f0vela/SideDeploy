@@ -34,17 +34,37 @@ func (m *model) sideW() int {
 
 func (m *model) bodyH() int { return max(3, m.h-chromeRows) }
 
+// diffMinWidth is the narrowest right-hand area that still shows the diff
+// beside the file list; below it the list takes the whole width and the diff
+// opens in a dialog.
+const diffMinWidth = 72
+
+func (m *model) diffVisible() bool { return m.w-m.sideW() >= diffMinWidth }
+
 func (m *model) filesW() int {
 	mainW := m.w - m.sideW()
+	if !m.diffVisible() {
+		return mainW
+	}
 	return max(24, min(mainW*2/5, 52))
 }
 
 func (m *model) diffW() int { return max(10, m.w-m.sideW()-m.filesW()-1) }
 
+// diffModalSize is the room the diff dialog gives its text.
+func (m *model) diffModalSize() (w, h int) {
+	return max(20, m.w-4-4), max(3, m.h-4-4-3)
+}
+
 // layout sizes the widgets for the window.
 func (m *model) layout() {
 	m.diff.Width = m.diffW()
 	m.diff.Height = max(1, m.bodyH()-1)
+	m.diffModal.Width, m.diffModal.Height = m.diffModalSize()
+	// A pane that is gone cannot keep the focus.
+	if m.repo != nil && (m.focus == paneDiff && !m.diffVisible() || m.focus == paneSide && !m.sideVisible()) {
+		m.setFocus(paneFiles)
+	}
 	m.msg.SetWidth(max(10, m.w-m.sideW()-4))
 	m.msg.SetHeight(commitRows)
 	m.bar.Width = 40
@@ -89,10 +109,12 @@ func (m *model) mainView() string {
 	if m.repo == nil {
 		right = m.welcomeView(mainW, m.h-1)
 	} else {
-		body := lipgloss.JoinHorizontal(lipgloss.Top,
-			m.filesView(m.filesW(), m.bodyH()),
-			m.rule1(m.bodyH()),
-			m.diffPaneView(m.diffW(), m.bodyH()))
+		body := m.filesView(m.filesW(), m.bodyH())
+		if m.diffVisible() {
+			body = lipgloss.JoinHorizontal(lipgloss.Top, body,
+				m.rule1(m.bodyH()),
+				m.diffPaneView(m.diffW(), m.bodyH()))
+		}
 		right = strings.Join([]string{
 			m.headerView(mainW),
 			m.rule(mainW),
@@ -117,20 +139,41 @@ func (m *model) rule1(h int) string {
 
 func (m *model) headerView(w int) string {
 	s := m.st
+	hint := func(k, label string) string { return s.key.Render(k) + s.muted.Render(" "+label+"  ") }
+	hints := ""
+	if !m.sideVisible() {
+		hints += hint("P", "Proyectos")
+	}
+	if !m.diffVisible() {
+		hints += hint("v", "Diff")
+	}
+	hints += hint("u", "Subir") + hint("d", "Destinos") + hint("t", "Tema") + hint("?", "Ayuda")
+	// On a narrow window the keys matter more than the path.
+	if ansi.StringWidth(hints) > w-12 {
+		hints = ""
+		if !m.sideVisible() {
+			hints += hint("P", "Proyectos")
+		}
+		if !m.diffVisible() {
+			hints += hint("v", "Diff")
+		}
+		hints += hint("?", "Ayuda")
+	}
+
 	left := s.title.Render(" " + filepath.Base(m.repo.Root))
-	left += s.muted.Render("  " + shortPath(m.repo.Root, max(10, w/3)))
+	branch := ""
 	if b := m.branch(); b != "" {
-		left += s.text.Render("  ") + s.badge.Render("⎇ "+b)
+		branch = s.text.Render("  ") + s.badge.Render("⎇ "+b)
 	}
-	hints := s.key.Render("u") + s.muted.Render(" Subir  ") +
-		s.key.Render("d") + s.muted.Render(" Destinos  ") +
-		s.key.Render("t") + s.muted.Render(" Tema  ") +
-		s.key.Render("?") + s.muted.Render(" Ayuda ")
-	gap := w - ansi.StringWidth(left) - ansi.StringWidth(hints)
-	if gap < 1 {
-		return paint(s.app, w, 1, []string{left})
+	room := w - ansi.StringWidth(left) - ansi.StringWidth(branch) - ansi.StringWidth(hints) - 2
+	if room >= 12 {
+		left += s.muted.Render("  " + shortPath(m.repo.Root, min(room-2, max(10, w/3))))
 	}
-	return left + s.text.Render(strings.Repeat(" ", gap)) + hints
+	left += branch
+	if gap := w - ansi.StringWidth(left) - ansi.StringWidth(hints); gap >= 1 {
+		return left + s.text.Render(strings.Repeat(" ", gap)) + hints
+	}
+	return paint(s.app, w, 1, []string{left})
 }
 
 func shortPath(p string, w int) string {
@@ -199,7 +242,11 @@ func (m *model) filesView(w, h int) string {
 	if n := len(m.status.Files); n > 0 {
 		count = fmt.Sprintf("  %d", n)
 	}
-	lines := []string{title.Render(" Archivos") + s.muted.Render(count)}
+	head := title.Render(" Archivos") + s.muted.Render(count)
+	if !m.diffVisible() && len(m.rows) > 0 {
+		head += s.muted.Render("  ") + s.key.Render("enter") + s.muted.Render(" ver diff")
+	}
+	lines := []string{head}
 
 	listH := h - 1
 	if len(m.rows) == 0 {
@@ -291,14 +338,18 @@ func (m *model) diffPaneView(w, h int) string {
 	return paint(s.app, w, h, append([]string{head}, rest...))
 }
 
-// renderDiff paints the diff lines for the current width and theme.
+// renderDiff paints the diff for the pane and for the dialog, at their widths.
 func (m *model) renderDiff() {
+	m.diff.SetContent(m.diffContent(m.diff.Width))
+	m.diffModal.SetContent(m.diffContent(m.diffModal.Width))
+}
+
+// diffContent paints the diff lines for a width and the current theme.
+func (m *model) diffContent(w int) string {
 	if len(m.diffLines) == 0 {
-		m.diff.SetContent("")
-		return
+		return ""
 	}
 	s := m.st
-	w := m.diff.Width
 	numW := 4
 	var b strings.Builder
 	for i, l := range m.diffLines {
@@ -322,7 +373,7 @@ func (m *model) renderDiff() {
 			b.WriteString(diffLine(s.text, s.gutter, num(l.New), " ", l.Text, w, numW))
 		}
 	}
-	m.diff.SetContent(b.String())
+	return b.String()
 }
 
 func diffLine(body, gutter lipgloss.Style, num, sign, text string, w, numW int) string {
