@@ -24,7 +24,7 @@ Comparten los mismos datos (`projects.json`, `pro-deployer.json`, `known_hosts`)
 - **Destinos:** editor por proyecto para ver, añadir, editar, elegir el activo y eliminar destinos FTP/SFTP, con contraseña oculta y clave privada. Los de `pro-deployer.json` se adoptan la primera vez.
 - **Subir:** sube el árbol de trabajo (staged, sin stage y sin seguimiento) al destino elegido, con lista local → remoto, progreso, errores y cancelación. Respeta `ignore`, `include`, `checkGitignore`, `autoDelete` y `concurrency`, crea las carpetas remotas y reintenta una vez cada archivo. Con `autoDelete`, borrar más de un archivo remoto pide confirmación.
 
-  ![Subir](screens/sideDeploy_gui_subir.png)
+  ![Subir](screens/sideDeploy_gui_subir_.png)
 - **SFTP seguro:** verifica la clave del host contra `~/.ssh/known_hosts` y el `known_hosts` propio de la app; un host nuevo muestra su huella y solo sube si confías en ella.
 - **Ajustes (⌘,):** rutas de los ejecutables de Claude y Copilot (vacío = buscar en el `PATH`).
 
